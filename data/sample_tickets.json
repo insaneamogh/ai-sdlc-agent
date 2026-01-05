@@ -1,0 +1,64 @@
+{
+  "tickets": [
+    {
+      "ticket_id": "PROJ-123",
+      "title": "Implement User Authentication",
+      "description": "As a user, I want to be able to log in to the application so that I can access my personalized dashboard.\n\nThe authentication system should:\n- Support email/password login\n- Integrate with OAuth 2.0 providers (Google, GitHub)\n- Implement secure session management\n- Support multi-factor authentication (MFA)\n\nTechnical Requirements:\n- Use JWT tokens for session management\n- Implement rate limiting on login attempts\n- Log all authentication events for audit",
+      "status": "In Progress",
+      "issue_type": "Story",
+      "priority": "High",
+      "acceptance_criteria": "Given a user with valid credentials\nWhen they submit the login form\nThen they should be authenticated and redirected to dashboard\n\nGiven a user with invalid credentials\nWhen they submit the login form\nThen they should see an error message\n\nGiven a user with MFA enabled\nWhen they enter correct password\nThen they should be prompted for MFA code",
+      "labels": ["authentication", "security", "mvp"],
+      "linked_prs": ["https://github.com/org/repo/pull/42"]
+    },
+    {
+      "ticket_id": "PROJ-124",
+      "title": "Create User Profile Page",
+      "description": "As a user, I want to view and edit my profile information so that I can keep my account details up to date.\n\nFeatures:\n- Display user information (name, email, avatar)\n- Allow editing of profile fields\n- Support avatar upload\n- Show account activity history",
+      "status": "Open",
+      "issue_type": "Story",
+      "priority": "Medium",
+      "acceptance_criteria": "Given an authenticated user\nWhen they navigate to /profile\nThen they should see their profile information\n\nGiven a user editing their profile\nWhen they save changes\nThen the changes should be persisted",
+      "labels": ["user-profile", "frontend"],
+      "linked_prs": []
+    },
+    {
+      "ticket_id": "PROJ-125",
+      "title": "Implement API Rate Limiting",
+      "description": "As a system administrator, I want to implement rate limiting on API endpoints to prevent abuse and ensure fair usage.\n\nRequirements:\n- Limit requests per IP address\n- Limit requests per authenticated user\n- Return appropriate 429 status codes\n- Include rate limit headers in responses\n\nConfiguration:\n- Default: 100 requests per minute\n- Authenticated users: 1000 requests per minute\n- Admin users: unlimited",
+      "status": "Open",
+      "issue_type": "Task",
+      "priority": "High",
+      "acceptance_criteria": "Given an unauthenticated user\nWhen they exceed 100 requests per minute\nThen they should receive a 429 response\n\nGiven rate limit headers\nWhen any request is made\nThen X-RateLimit-Limit and X-RateLimit-Remaining headers should be present",
+      "labels": ["security", "api", "infrastructure"],
+      "linked_prs": []
+    },
+    {
+      "ticket_id": "PROJ-126",
+      "title": "Add Search Functionality",
+      "description": "As a user, I want to search for content across the application so that I can quickly find what I'm looking for.\n\nSearch should support:\n- Full-text search across documents\n- Filtering by type, date, author\n- Sorting by relevance, date\n- Pagination of results\n- Search suggestions/autocomplete",
+      "status": "Open",
+      "issue_type": "Feature",
+      "priority": "Medium",
+      "acceptance_criteria": "Given a search query\nWhen the user submits the search\nThen relevant results should be displayed\n\nGiven search results\nWhen the user applies filters\nThen results should be filtered accordingly",
+      "labels": ["search", "feature", "elasticsearch"],
+      "linked_prs": []
+    },
+    {
+      "ticket_id": "PROJ-127",
+      "title": "Fix Memory Leak in WebSocket Handler",
+      "description": "There is a memory leak in the WebSocket connection handler that causes the server to run out of memory after extended use.\n\nSteps to reproduce:\n1. Open multiple WebSocket connections\n2. Send messages for 30+ minutes\n3. Observe memory usage increasing\n\nExpected: Memory should remain stable\nActual: Memory grows continuously",
+      "status": "Open",
+      "issue_type": "Bug",
+      "priority": "Critical",
+      "acceptance_criteria": "Given multiple WebSocket connections\nWhen running for extended periods\nThen memory usage should remain stable\n\nGiven a closed WebSocket connection\nWhen the connection is terminated\nThen all associated resources should be freed",
+      "labels": ["bug", "memory-leak", "websocket", "critical"],
+      "linked_prs": []
+    }
+  ],
+  "metadata": {
+    "generated_at": "2024-01-15T10:00:00Z",
+    "purpose": "Sample data for AI SDLC Agent development and testing",
+    "version": "1.0"
+  }
+}
