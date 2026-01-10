@@ -136,13 +136,19 @@ class GitHubService:
             client = await self._get_client()
             response = await client.get(f"/repos/{repo}/pulls/{pr_number}")
             response.raise_for_status()
-            
+
             data = response.json()
             return self._parse_pr(data)
-            
+
+        except httpx.HTTPStatusError as e:
+            # Propagate a clear error including status and body
+            status = e.response.status_code if e.response is not None else ""
+            text = e.response.text if e.response is not None else str(e)
+            logger.error(f"Failed to fetch PR {repo}#{pr_number}: {status} {text}")
+            raise Exception(f"GitHub API error fetching PR {repo}#{pr_number}: {status} {text}")
         except httpx.HTTPError as e:
             logger.error(f"Failed to fetch PR {repo}#{pr_number}: {e}")
-            return self._get_mock_pr(pr_number)
+            raise Exception(f"GitHub HTTP error fetching PR {repo}#{pr_number}: {e}")
     
     def _parse_pr(self, data: Dict[str, Any]) -> GitHubPR:
         """Parse GitHub API response into GitHubPR model"""
@@ -236,18 +242,34 @@ index 0000000..1234567
                 headers=headers
             )
             response.raise_for_status()
-            
+
             return response.text
-            
+
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code if e.response is not None else ""
+            text = e.response.text if e.response is not None else str(e)
+            logger.error(f"Failed to fetch diff for {repo}#{pr_number}: {status} {text}")
+            raise Exception(f"GitHub API error fetching diff for {repo}#{pr_number}: {status} {text}")
         except httpx.HTTPError as e:
             logger.error(f"Failed to fetch diff for {repo}#{pr_number}: {e}")
-            return ""
+            raise Exception(f"GitHub HTTP error fetching diff for {repo}#{pr_number}: {e}")
     
+    async def _get_default_branch(self, repo: str) -> str:
+        """Return the repository default branch name by querying the repo metadata."""
+        try:
+            client = await self._get_client()
+            response = await client.get(f"/repos/{repo}")
+            response.raise_for_status()
+            data = response.json()
+            return data.get("default_branch", "main")
+        except Exception:
+            return "main"
+
     async def get_file(
         self,
         repo: str,
         path: str,
-        ref: str = "main"
+        ref: Optional[str] = None
     ) -> Optional[GitHubFile]:
         """
         Get a file from a repository.
@@ -269,7 +291,9 @@ index 0000000..1234567
                 sha="abc123",
                 size=100
             )
-        
+        # If ref is not provided, determine the default branch
+        if not ref:
+            ref = await self._get_default_branch(repo)
         try:
             client = await self._get_client()
             response = await client.get(
@@ -277,29 +301,34 @@ index 0000000..1234567
                 params={"ref": ref}
             )
             response.raise_for_status()
-            
+
             data = response.json()
-            
+
             # Decode base64 content
             import base64
             content = base64.b64decode(data.get("content", "")).decode("utf-8")
-            
+
             return GitHubFile(
                 path=data.get("path", path),
                 content=content,
                 sha=data.get("sha", ""),
                 size=data.get("size", 0)
             )
-            
+
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code if e.response is not None else ""
+            text = e.response.text if e.response is not None else str(e)
+            logger.error(f"Failed to fetch file {repo}/{path}: {status} {text}")
+            raise Exception(f"GitHub API error fetching file {repo}/{path}: {status} {text}")
         except httpx.HTTPError as e:
             logger.error(f"Failed to fetch file {repo}/{path}: {e}")
-            return None
+            raise Exception(f"GitHub HTTP error fetching file {repo}/{path}: {e}")
     
     async def list_files(
         self,
         repo: str,
         path: str = "",
-        ref: str = "main"
+        ref: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         List files in a repository directory.
@@ -319,7 +348,9 @@ index 0000000..1234567
                 {"name": "README.md", "type": "file", "path": "README.md"},
                 {"name": "requirements.txt", "type": "file", "path": "requirements.txt"}
             ]
-        
+        # Resolve ref to default branch when not specified
+        if not ref:
+            ref = await self._get_default_branch(repo)
         try:
             client = await self._get_client()
             response = await client.get(
@@ -327,9 +358,9 @@ index 0000000..1234567
                 params={"ref": ref}
             )
             response.raise_for_status()
-            
+
             data = response.json()
-            if isinstance(data, list):
+            if isinstance(data, list) and len(data) > 0:
                 return [
                     {
                         "name": item.get("name"),
@@ -339,10 +370,38 @@ index 0000000..1234567
                     }
                     for item in data
                 ]
-            return []
-            
+
+            # If contents API returned empty or a single file, fall back to the git/trees API for a recursive listing
+            tree_resp = await client.get(f"/repos/{repo}/git/trees/{ref}", params={"recursive": "1"})
+            try:
+                tree_resp.raise_for_status()
+                tree_data = tree_resp.json()
+                tree = tree_data.get("tree", [])
+                # Filter by path prefix if a subpath was requested
+                prefix = path.rstrip('/') + '/' if path else ''
+                items = []
+                for item in tree:
+                    item_path = item.get("path", "")
+                    if prefix and not item_path.startswith(prefix):
+                        continue
+                    # Map git tree types to content types used elsewhere
+                    items.append({
+                        "name": item_path.split('/')[-1],
+                        "type": "file" if item.get("type") == "blob" else "dir",
+                        "path": item_path,
+                        "size": item.get("size", 0)
+                    })
+                return items
+            except httpx.HTTPStatusError:
+                return []
+
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code if e.response is not None else ""
+            text = e.response.text if e.response is not None else str(e)
+            logger.error(f"Failed to list files in {repo}/{path}: {status} {text}")
+            raise Exception(f"GitHub API error listing files in {repo}/{path}: {status} {text}")
         except httpx.HTTPError as e:
             logger.error(f"Failed to list files in {repo}/{path}: {e}")
-            return []
+            raise Exception(f"GitHub HTTP error listing files in {repo}/{path}: {e}")
 
 #__________________________GenAI: Generated code ends here______________________________#

@@ -7,16 +7,17 @@ fastapi==0.109.0
 uvicorn[standard]==0.27.0
 
 # LLM & AI
-langchain==0.1.0
-langchain-openai==0.0.5
-langchain-community==0.0.13
-langgraph==0.0.26
+# langchain re-added after successful install into the venv
+langchain==1.2.3
+# Pin langgraph to a version compatible with langchain 1.2.3
+langgraph==1.0.5
 
 # Vector Database
 chromadb==0.4.22
 
 # Data Validation
-pydantic==2.5.3
+# Use a pydantic version compatible with langchain (>=2.7.4)
+pydantic==2.12.5
 pydantic-settings==2.1.0
 
 # HTTP Client (for Jira/GitHub APIs)

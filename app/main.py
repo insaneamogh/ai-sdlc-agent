@@ -1,4 +1,3 @@
-#_______________This Code was generated using GenAI tool: Codify, Please check for accuracy_______________#
 
 """
 FastAPI Application Entry Point
@@ -112,4 +111,4 @@ async def health_check():
         "version": settings.api_version
     }
 
-#__________________________GenAI: Generated code ends here______________________________#
+

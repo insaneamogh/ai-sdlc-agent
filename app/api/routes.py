@@ -8,9 +8,10 @@ This module defines all API endpoints for the AI SDLC Agent.
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from enum import Enum
 from datetime import datetime
+from app.services.github_service import GitHubService
 
 router = APIRouter()
 
@@ -62,6 +63,12 @@ class AnalyzeRequest(BaseModel):
     )
 
 
+class GitHubFileRequest(BaseModel):
+    """Request to fetch a single file from a repository"""
+    repo: str
+    path: str
+
+
 class TicketInput(BaseModel):
     """Manual ticket input when Jira is not connected"""
     title: str = Field(..., description="Ticket title")
@@ -110,6 +117,9 @@ class AnalyzeResponse(BaseModel):
     requirements: Optional[List[Requirement]] = None
     generated_code: Optional[str] = None
     generated_tests: Optional[str] = None
+    github_pr: Optional[Dict[str, Any]] = None
+    github_diff: Optional[str] = None
+    github_files: Optional[List[Dict[str, Any]]] = None
     message: str
 
 
@@ -195,6 +205,11 @@ async def analyze_ticket(request: AnalyzeRequest):
             result={"requirements_count": len(mock_requirements)}
         )
     ]
+    # Top-level GitHub context to include in response
+    github_pr = None
+    github_diff = None
+    github_files: List[Dict[str, Any]] = []
+    generated_code = None
     
     if request.action in [ActionType.GENERATE_CODE, ActionType.FULL_PIPELINE]:
         mock_agents.append(
@@ -217,6 +232,173 @@ async def analyze_ticket(request: AnalyzeRequest):
                 result={"tests_generated": 5}
             )
         )
+    # If GitHub context was provided, fetch PR/diff/files and include in agent results
+    if request.github_pr or request.github_repo:
+        gh_service = GitHubService()
+        try:
+            if request.github_pr:
+                # Support formats: full URL, or owner/repo#number
+                pr_number = None
+                repo_ref = None
+
+                # owner/repo#number
+                if "#" in request.github_pr and "/" in request.github_pr.split("#")[0]:
+                    try:
+                        parts = request.github_pr.split("#")
+                        repo_ref = parts[0]
+                        pr_number = int(parts[1])
+                    except Exception:
+                        pr_number = None
+
+                # URL form
+                if pr_number is None:
+                    try:
+                        segs = request.github_pr.rstrip("/").split("/")
+                        pr_number = int(segs[-1])
+                        repo_url = "/".join(segs[:-2])
+                        owner, repo_name = gh_service._parse_repo_url(repo_url)
+                        repo_ref = f"{owner}/{repo_name}" if owner and repo_name else repo_url
+                    except Exception:
+                        pr_number = None
+
+                pr_info = None
+                pr_diff = None
+                files = []
+                if pr_number and repo_ref:
+                    pr_info = await gh_service.get_pr(repo_ref, pr_number)
+                    pr_diff = await gh_service.get_pr_diff(repo_ref, pr_number)
+                    files = await gh_service.list_files(repo_ref)
+
+                    # parse added hunks from diff into generated_code
+                    generated_from_diff = []
+                    if pr_diff:
+                        current_file = None
+                        hunk_lines = []
+                        for line in pr_diff.splitlines():
+                            if line.startswith('diff --git'):
+                                # flush previous
+                                if current_file and hunk_lines:
+                                    generated_from_diff.append(f"# {current_file}\n" + "\n".join(hunk_lines))
+                                current_file = None
+                                hunk_lines = []
+                            elif line.startswith('+++ b/') or line.startswith('+++ '):
+                                current_file = line.split('+++ b/')[-1].strip()
+                            elif line.startswith('+') and not line.startswith('+++'):
+                                hunk_lines.append(line[1:])
+                        if current_file and hunk_lines:
+                            generated_from_diff.append(f"# {current_file}\n" + "\n".join(hunk_lines))
+
+                    mock_agents.append(
+                        AgentResult(
+                            agent_name="GitHubFetcher",
+                            status=AgentStatus.COMPLETED,
+                            started_at=datetime.utcnow(),
+                            completed_at=datetime.utcnow(),
+                            result={
+                                "pr": pr_info.dict() if pr_info else None,
+                                "diff": pr_diff,
+                                "files": files
+                            }
+                        )
+                    )
+                    github_pr = pr_info.dict() if pr_info else None
+                    github_diff = pr_diff
+                    github_files = files
+                    if pr_diff and generated_from_diff:
+                        generated_code = "\n\n---\n\n".join(generated_from_diff)
+            else:
+                # Only a repo was provided: list files at repo root
+                owner, repo_name = gh_service._parse_repo_url(request.github_repo)
+                repo_ref = f"{owner}/{repo_name}" if owner and repo_name else request.github_repo
+                files = await gh_service.list_files(repo_ref)
+                # Attempt to fetch contents of a few useful files to populate generated_code
+                fetched_contents = []
+                try:
+                    # Prefer README.md if present
+                    readme_path = None
+                    for f in files:
+                        if f.get("name", "").lower().startswith("readme"):
+                            readme_path = f.get("path")
+                            break
+
+                    if readme_path:
+                        rf = await gh_service.get_file(repo_ref, readme_path)
+                        if rf and rf.content:
+                            fetched_contents.append(f"# {readme_path}\n" + rf.content)
+
+                    # Fetch up to 4 top-level code files (.py, .md, .txt, .json)
+                    fetched = 0
+                    for f in files:
+                        if fetched >= 4:
+                            break
+                        if f.get("type") != "file":
+                            continue
+                        path = f.get("path")
+                        if path and path.lower().endswith(('.py', '.md', '.txt', '.json', '.yaml', '.yml')) and path != readme_path:
+                            try:
+                                gf = await gh_service.get_file(repo_ref, path)
+                                if gf and gf.content:
+                                    fetched_contents.append(f"# {path}\n" + gf.content)
+                                    fetched += 1
+                            except Exception:
+                                continue
+                except Exception:
+                    fetched_contents = []
+
+                mock_agents.append(
+                    AgentResult(
+                        agent_name="GitHubFetcher",
+                        status=AgentStatus.COMPLETED,
+                        started_at=datetime.utcnow(),
+                        completed_at=datetime.utcnow(),
+                        result={"files": files}
+                    )
+                )
+                github_pr = None
+                github_diff = None
+                github_files = files
+                # If we fetched any file contents, set generated_code to their concatenation
+                if not github_diff and fetched_contents:
+                    generated_code = "\n\n---\n\n".join(fetched_contents)
+                else:
+                    generated_code = None
+        except Exception as e:
+            mock_agents.append(
+                AgentResult(
+                    agent_name="GitHubFetcher",
+                    status=AgentStatus.FAILED,
+                    started_at=datetime.utcnow(),
+                    completed_at=datetime.utcnow(),
+                    error=str(e)
+                )
+            )
+        finally:
+            try:
+                await gh_service.close()
+            except Exception:
+                pass
+
+
+    @router.post("/github/file")
+    async def fetch_github_file(req: GitHubFileRequest):
+        """Return file content for a given repo and path."""
+        gh_service = GitHubService()
+        try:
+            owner, repo_name = gh_service._parse_repo_url(req.repo)
+            repo_ref = f"{owner}/{repo_name}" if owner and repo_name else req.repo
+            gf = await gh_service.get_file(repo_ref, req.path)
+            if not gf:
+                raise HTTPException(status_code=404, detail="File not found")
+            return {"path": gf.path, "content": gf.content, "sha": gf.sha, "size": gf.size}
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        finally:
+            try:
+                await gh_service.close()
+            except Exception:
+                pass
     
     return AnalyzeResponse(
         request_id=request_id,
@@ -225,8 +407,11 @@ async def analyze_ticket(request: AnalyzeRequest):
         status=AgentStatus.COMPLETED,
         agents=mock_agents,
         requirements=mock_requirements,
-        generated_code="# Generated code will appear here\ndef authenticate_user():\n    pass",
+        generated_code=github_diff or generated_code or "# Generated code will appear here\ndef authenticate_user():\n    pass",
         generated_tests="# Generated tests will appear here\ndef test_authenticate_user():\n    pass",
+        github_pr=github_pr,
+        github_diff=github_diff,
+        github_files=github_files,
         message=f"Successfully analyzed ticket {request.ticket_id}"
     )
 

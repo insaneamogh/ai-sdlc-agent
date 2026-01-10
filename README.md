@@ -229,6 +229,26 @@ graph TD
 | `DEBUG` | Enable debug mode | No |
 | `LOG_LEVEL` | Logging level | No |
 
+### Secrets & Security
+
+- NEVER commit secrets or `.env` files to version control. This repository's `.gitignore` already excludes `.env` files.
+- Local workflow: copy `.env.example` to `.env` and add your real secret values locally only. Do NOT commit the `.env` file.
+   ```bash
+   cp .env.example .env
+   # edit .env locally and paste your keys (DO NOT commit)
+   ```
+- CI / Deployment: store secrets in your platform's secret store (GitHub Actions Secrets, Azure Key Vault, AWS Secrets Manager, etc.) and inject them as environment variables at runtime.
+- Example (GitHub Actions):
+   ```yaml
+   env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+   ```
+- Rotate tokens regularly and restrict scopes. For `GITHUB_TOKEN` prefer least-privilege PAT scopes or use a deploy key for read-only access.
+- Audit your repo for accidental secrets before pushing: `git diff --staged` and `git log -p`.
+
+If you'd like, I can add an optional pre-commit hook to block accidental commits of `.env` or detect token-like strings.
+
 ## 🧪 Testing
 
 ```bash
