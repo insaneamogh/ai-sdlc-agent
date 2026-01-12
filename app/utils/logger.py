@@ -1,5 +1,3 @@
-#_______________This Code was generated using GenAI tool: Codify, Please check for accuracy_______________#
-
 """
 Logger Utility Module
 
@@ -58,5 +56,3 @@ except Exception:
 
 # Export the configured logger
 __all__ = ["logger"]
-
-#__________________________GenAI: Generated code ends here______________________________#

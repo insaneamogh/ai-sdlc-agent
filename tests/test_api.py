@@ -1,5 +1,3 @@
-#_______________This Code was generated using GenAI tool: Codify, Please check for accuracy_______________#
-
 """
 API Tests Module
 
@@ -226,5 +224,3 @@ def test_with_sample_ticket(sample_ticket):
     """Test using sample ticket fixture"""
     assert sample_ticket["ticket_id"] == "SAMPLE-001"
     assert "description" in sample_ticket
-
-#__________________________GenAI: Generated code ends here______________________________#

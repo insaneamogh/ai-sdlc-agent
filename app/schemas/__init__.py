@@ -1,5 +1,3 @@
-#_______________This Code was generated using GenAI tool: Codify, Please check for accuracy_______________#
-
 """
 Schemas Package
 
@@ -22,5 +20,3 @@ __all__ = [
     "TestOutput",
     "PipelineResult"
 ]
-
-#__________________________GenAI: Generated code ends here______________________________#

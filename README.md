@@ -14,6 +14,233 @@ An AI-native SDLC orchestration system that automates requirement analysis, code
 - A multi-agent orchestration system using LangGraph
 - A RAG-powered system grounded in real SDLC context
 
+---
+
+## 📊 State Machine Diagrams
+
+### 1. UI State Machine (Frontend Flow)
+
+```mermaid
+stateDiagram-v2
+    [*] --> InputScreen: App Load
+    
+    InputScreen --> Validating: Submit Form
+    Validating --> InputScreen: Validation Failed
+    Validating --> Executing: Validation Passed
+    
+    Executing --> AgentProgress: API Call Started
+    AgentProgress --> AgentProgress: Agent Updates
+    AgentProgress --> ResultScreen: All Agents Complete
+    AgentProgress --> ErrorScreen: API Error
+    
+    ResultScreen --> InputScreen: New Pipeline
+    ErrorScreen --> InputScreen: Retry
+    
+    state InputScreen {
+        [*] --> EnterKeys
+        EnterKeys --> EnterTicket: Keys Valid
+        EnterTicket --> Ready: Ticket Entered
+    }
+    
+    state AgentProgress {
+        [*] --> RequirementAgent
+        RequirementAgent --> CodeAgent
+        CodeAgent --> TestAgent
+        TestAgent --> [*]
+    }
+```
+
+### 2. Backend Pipeline State Machine (LangGraph Orchestration)
+
+```mermaid
+stateDiagram-v2
+    [*] --> RequirementAnalyzer: Start Pipeline
+    
+    RequirementAnalyzer --> ActionDecision: Analysis Complete
+    
+    state ActionDecision <<choice>>
+    ActionDecision --> [*]: action = analyze_requirements
+    ActionDecision --> CodeGenerator: action = generate_code
+    ActionDecision --> TestGenerator: action = generate_tests  
+    ActionDecision --> CodeGenerator: action = full_pipeline
+    
+    CodeGenerator --> CodeDecision: Code Generated
+    
+    state CodeDecision <<choice>>
+    CodeDecision --> [*]: action = generate_code
+    CodeDecision --> TestGenerator: action = full_pipeline
+    
+    TestGenerator --> [*]: Tests Generated
+    
+    note right of RequirementAnalyzer
+        Extracts structured requirements
+        from ticket description
+    end note
+    
+    note right of CodeGenerator
+        Generates code based on
+        requirements + RAG context
+    end note
+    
+    note right of TestGenerator
+        Creates unit/integration tests
+        for generated code
+    end note
+```
+
+### 3. File Connection Diagram (System Architecture)
+
+```mermaid
+graph TB
+    subgraph "Frontend Layer (ui/)"
+        A[main.jsx] --> B[App.jsx]
+        B --> C[api.js]
+        B --> D[ErrorBoundary.jsx]
+        E[index.css] --> B
+    end
+    
+    subgraph "API Layer (app/api/)"
+        F[main.py] --> G[routes.py]
+        G --> H[config.py]
+    end
+    
+    subgraph "Services Layer (app/services/)"
+        I[github_service.py]
+        J[jira_service.py]
+        K[embedding_service.py]
+    end
+    
+    subgraph "Orchestration Layer (app/orchestration/)"
+        L[graph.py]
+    end
+    
+    subgraph "Agents Layer (app/agents/)"
+        M[requirement_agent.py]
+        N[code_agent.py]
+        O[test_agent.py]
+    end
+    
+    subgraph "Data Layer (app/vectorstore/)"
+        P[chroma_store.py]
+    end
+    
+    subgraph "Schemas (app/schemas/)"
+        Q[models.py]
+    end
+    
+    subgraph "Utilities (app/utils/)"
+        R[logger.py]
+    end
+    
+    C -->|HTTP POST /api/v1/analyze| G
+    G --> I
+    G --> J
+    G --> L
+    L --> M
+    L --> N
+    L --> O
+    M --> K
+    N --> K
+    O --> K
+    K --> P
+    M --> Q
+    N --> Q
+    O --> Q
+    G --> R
+    L --> R
+    
+    style A fill:#61dafb
+    style B fill:#61dafb
+    style F fill:#009688
+    style G fill:#009688
+    style L fill:#ff9800
+    style M fill:#4caf50
+    style N fill:#4caf50
+    style O fill:#4caf50
+    style P fill:#9c27b0
+```
+
+### 4. API Request Flow (Sequence Diagram)
+
+```mermaid
+sequenceDiagram
+    participant UI as React UI
+    participant API as FastAPI
+    participant GH as GitHubService
+    participant Orch as SDLCOrchestrator
+    participant RA as RequirementAgent
+    participant CA as CodeAgent
+    participant TA as TestAgent
+    participant VS as VectorStore
+    
+    UI->>API: POST /api/v1/analyze
+    API->>GH: Fetch repo context (optional)
+    GH-->>API: Repository files
+    
+    API->>Orch: run(ticket_data, action)
+    
+    Orch->>RA: analyze(ticket)
+    RA->>VS: search_similar_tickets()
+    VS-->>RA: RAG context
+    RA-->>Orch: requirements[]
+    
+    alt action = generate_code or full_pipeline
+        Orch->>CA: generate(requirements)
+        CA->>VS: search_similar_code()
+        VS-->>CA: Code patterns
+        CA-->>Orch: generated_code
+    end
+    
+    alt action = generate_tests or full_pipeline
+        Orch->>TA: generate(code, requirements)
+        TA-->>Orch: generated_tests
+    end
+    
+    Orch-->>API: final_state
+    API-->>UI: JSON response
+```
+
+### 5. Data Flow Diagram
+
+```mermaid
+flowchart LR
+    subgraph Input
+        A[Jira Ticket]
+        B[GitHub Repo]
+        C[API Keys]
+    end
+    
+    subgraph Processing
+        D[FastAPI Gateway]
+        E[LangGraph Orchestrator]
+        F[AI Agents]
+        G[Vector Store]
+    end
+    
+    subgraph Output
+        H[Requirements JSON]
+        I[Generated Code]
+        J[Test Suite]
+    end
+    
+    A --> D
+    B --> D
+    C --> D
+    D --> E
+    E --> F
+    F <--> G
+    F --> H
+    F --> I
+    F --> J
+    
+    style D fill:#009688
+    style E fill:#ff9800
+    style F fill:#4caf50
+    style G fill:#9c27b0
+```
+
+---
+
 ## 🏗️ Architecture
 
 ```
@@ -91,6 +318,15 @@ ai-sdlc-agent/
 │   └── utils/
 │       ├── __init__.py
 │       └── logger.py           # Logging utility
+├── ui/                         # React Frontend
+│   ├── src/
+│   │   ├── main.jsx           # React entry point
+│   │   ├── App.jsx            # Main component
+│   │   ├── api.js             # API client
+│   │   ├── ErrorBoundary.jsx  # Error handling
+│   │   └── index.css          # Styles
+│   ├── package.json
+│   └── vite.config.js
 ├── tests/
 │   ├── __init__.py
 │   └── test_api.py             # API tests
@@ -107,6 +343,7 @@ ai-sdlc-agent/
 ### Prerequisites
 
 - Python 3.10+
+- Node.js 18+ (for frontend)
 - OpenAI API key
 
 ### Installation
@@ -121,14 +358,18 @@ ai-sdlc-agent/
    ```bash
    python -m venv venv
    
-   # Windows
+   # Windows (CMD)
    venv\Scripts\activate
+   
+   # Windows (PowerShell) - if script execution is disabled:
+   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+   venv\Scripts\Activate.ps1
    
    # macOS/Linux
    source venv/bin/activate
    ```
 
-3. **Install dependencies**
+3. **Install Python dependencies**
    ```bash
    pip install -r requirements.txt
    ```
@@ -136,18 +377,37 @@ ai-sdlc-agent/
 4. **Configure environment**
    ```bash
    cp .env.example .env
-   # Edit .env and add your OPENAI_API_KEY
+   # Edit .env and add your OPENAI_API_KEY and GITHUB_TOKEN
    ```
 
-5. **Run the server**
+5. **Run the backend server**
    ```bash
-   uvicorn app.main:app --reload
+   uvicorn app.main:app --reload --port 8001
    ```
 
-6. **Access the API**
-   - API: http://localhost:8000
-   - Docs: http://localhost:8000/docs
-   - Health: http://localhost:8000/health
+6. **Run the frontend (in a new terminal)**
+   ```bash
+   cd ui
+   npm install
+   npm run dev
+   ```
+
+7. **Access the application**
+   - Frontend: http://localhost:5173
+   - Backend API: http://localhost:8001
+   - API Docs: http://localhost:8001/docs
+
+### Windows PowerShell Script Execution Error
+
+If you see this error:
+```
+File cannot be loaded because running scripts is disabled on this system
+```
+
+Run this command in PowerShell as Administrator:
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
 
 ## 📡 API Endpoints
 
@@ -180,6 +440,15 @@ POST /api/v1/analyze/manual
 ### List Agents
 ```bash
 GET /api/v1/agents
+```
+
+### Get GitHub File
+```bash
+POST /api/v1/github/file
+{
+  "repo": "owner/repo",
+  "path": "src/main.py"
+}
 ```
 
 ## 🤖 Agents
@@ -222,10 +491,10 @@ graph TD
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `OPENAI_API_KEY` | OpenAI API key | Yes |
+| `GITHUB_TOKEN` | GitHub personal access token | Yes |
 | `JIRA_URL` | Jira instance URL | No |
 | `JIRA_EMAIL` | Jira account email | No |
 | `JIRA_API_TOKEN` | Jira API token | No |
-| `GITHUB_TOKEN` | GitHub personal access token | No |
 | `DEBUG` | Enable debug mode | No |
 | `LOG_LEVEL` | Logging level | No |
 
@@ -246,8 +515,6 @@ graph TD
    ```
 - Rotate tokens regularly and restrict scopes. For `GITHUB_TOKEN` prefer least-privilege PAT scopes or use a deploy key for read-only access.
 - Audit your repo for accidental secrets before pushing: `git diff --staged` and `git log -p`.
-
-If you'd like, I can add an optional pre-commit hook to block accidental commits of `.env` or detect token-like strings.
 
 ## 🧪 Testing
 
@@ -279,12 +546,29 @@ The system includes:
 | Grounding | Hallucination-prone | SDLC data grounded |
 | Inspection | Black box | LangGraph inspectable |
 
+## ⚠️ Known Issues & Fixes
+
+### ChromaDB on Windows
+ChromaDB requires Visual C++ Build Tools on Windows. If you see a build error:
+1. Install [Visual C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+2. Uncomment `chromadb>=0.4.0` in `requirements.txt`
+3. Run `pip install chromadb`
+
+On Mac/Linux, ChromaDB installs without issues.
+
+### PowerShell Script Execution
+If virtual environment activation fails in PowerShell:
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
 ## 🛣️ Roadmap
 
-- [ ] Real LLM integration (currently mock)
+- [x] FastAPI backend with LangGraph orchestration
+- [x] React frontend with Vite
+- [x] GitHub integration
 - [ ] Full Jira integration
-- [ ] Full GitHub integration
-- [ ] React frontend
+- [ ] ChromaDB vector store integration
 - [ ] Docker deployment
 - [ ] Streaming responses
 - [ ] Webhook support

@@ -1,5 +1,3 @@
-#_______________This Code was generated using GenAI tool: Codify, Please check for accuracy_______________#
-
 """
 Test Generator Agent
 
@@ -303,5 +301,3 @@ Please generate tests that:
 Return the complete test file with all imports."""
         
         return prompt
-
-#__________________________GenAI: Generated code ends here______________________________#

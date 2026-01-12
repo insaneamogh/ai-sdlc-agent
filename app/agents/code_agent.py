@@ -1,5 +1,3 @@
-#_______________This Code was generated using GenAI tool: Codify, Please check for accuracy_______________#
-
 """
 Code Generator Agent
 
@@ -272,5 +270,3 @@ Please generate clean, well-documented code that:
 Return the code with clear file separations."""
         
         return prompt
-
-#__________________________GenAI: Generated code ends here______________________________#

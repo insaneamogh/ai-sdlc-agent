@@ -1,5 +1,3 @@
-#_______________This Code was generated using GenAI tool: Codify, Please check for accuracy_______________#
-
 """
 API Routes Module
 
@@ -378,28 +376,6 @@ async def analyze_ticket(request: AnalyzeRequest):
             except Exception:
                 pass
 
-
-    @router.post("/github/file")
-    async def fetch_github_file(req: GitHubFileRequest):
-        """Return file content for a given repo and path."""
-        gh_service = GitHubService()
-        try:
-            owner, repo_name = gh_service._parse_repo_url(req.repo)
-            repo_ref = f"{owner}/{repo_name}" if owner and repo_name else req.repo
-            gf = await gh_service.get_file(repo_ref, req.path)
-            if not gf:
-                raise HTTPException(status_code=404, detail="File not found")
-            return {"path": gf.path, "content": gf.content, "sha": gf.sha, "size": gf.size}
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-        finally:
-            try:
-                await gh_service.close()
-            except Exception:
-                pass
-    
     return AnalyzeResponse(
         request_id=request_id,
         ticket_id=request.ticket_id,
@@ -531,4 +507,28 @@ async def get_request_status(request_id: str):
         "message": "Request completed successfully"
     }
 
-#__________________________GenAI: Generated code ends here______________________________#
+
+@router.post("/github/file")
+async def fetch_github_file(req: GitHubFileRequest):
+    """
+    Return file content for a given repo and path.
+    
+    This endpoint fetches a single file from a GitHub repository.
+    """
+    gh_service = GitHubService()
+    try:
+        owner, repo_name = gh_service._parse_repo_url(req.repo)
+        repo_ref = f"{owner}/{repo_name}" if owner and repo_name else req.repo
+        gf = await gh_service.get_file(repo_ref, req.path)
+        if not gf:
+            raise HTTPException(status_code=404, detail="File not found")
+        return {"path": gf.path, "content": gf.content, "sha": gf.sha, "size": gf.size}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            await gh_service.close()
+        except Exception:
+            pass

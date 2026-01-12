@@ -1,5 +1,3 @@
-#_______________This Code was generated using GenAI tool: Codify, Please check for accuracy_______________#
-
 """
 Requirement Analyzer Agent
 
@@ -203,5 +201,3 @@ Return the results in a structured JSON format."""
                 "high_priority": len(high_priority)
             }
         }
-
-#__________________________GenAI: Generated code ends here______________________________#

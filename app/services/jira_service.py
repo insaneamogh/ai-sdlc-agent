@@ -1,5 +1,3 @@
-#_______________This Code was generated using GenAI tool: Codify, Please check for accuracy_______________#
-
 """
 Jira Service Module
 
@@ -253,5 +251,3 @@ Then they should be prompted for MFA code""",
         except httpx.HTTPError as e:
             logger.error(f"Failed to get comments for {ticket_id}: {e}")
             return []
-
-#__________________________GenAI: Generated code ends here______________________________#

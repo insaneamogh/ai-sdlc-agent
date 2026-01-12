@@ -1,5 +1,3 @@
-#_______________This Code was generated using GenAI tool: Codify, Please check for accuracy_______________#
-
 """
 Pydantic Models Module
 
@@ -332,5 +330,3 @@ class PaginatedResponse(BaseModel):
     page: int = Field(default=1)
     page_size: int = Field(default=20)
     has_more: bool = Field(default=False)
-
-#__________________________GenAI: Generated code ends here______________________________#

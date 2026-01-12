@@ -1,5 +1,3 @@
-#_______________This Code was generated using GenAI tool: Codify, Please check for accuracy_______________#
-
 """
 ChromaDB Vector Store Module
 
@@ -397,5 +395,3 @@ class ChromaStore:
         """Search for similar code snippets"""
         filters = {"language": language} if language else None
         return self.search(query, limit=limit, source_type="code", filters=filters)
-
-#__________________________GenAI: Generated code ends here______________________________#

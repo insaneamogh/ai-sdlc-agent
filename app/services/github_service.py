@@ -1,5 +1,3 @@
-#_______________This Code was generated using GenAI tool: Codify, Please check for accuracy_______________#
-
 """
 GitHub Service Module
 
@@ -403,5 +401,3 @@ index 0000000..1234567
         except httpx.HTTPError as e:
             logger.error(f"Failed to list files in {repo}/{path}: {e}")
             raise Exception(f"GitHub HTTP error listing files in {repo}/{path}: {e}")
-
-#__________________________GenAI: Generated code ends here______________________________#

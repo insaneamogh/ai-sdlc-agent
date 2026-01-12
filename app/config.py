@@ -1,5 +1,3 @@
-#_______________This Code was generated using GenAI tool: Codify, Please check for accuracy_______________#
-
 """
 Application Configuration Module
 
@@ -137,5 +135,3 @@ def validate_settings() -> dict:
         "missing": missing,
         "warnings": warnings
     }
-
-#__________________________GenAI: Generated code ends here______________________________#

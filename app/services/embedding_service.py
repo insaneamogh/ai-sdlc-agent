@@ -1,5 +1,3 @@
-#_______________This Code was generated using GenAI tool: Codify, Please check for accuracy_______________#
-
 """
 Embedding Service Module
 
@@ -226,5 +224,3 @@ class EmbeddingService:
             return 0.0
         
         return dot_product / (norm1 * norm2)
-
-#__________________________GenAI: Generated code ends here______________________________#

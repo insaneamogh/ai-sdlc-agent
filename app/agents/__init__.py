@@ -1,5 +1,3 @@
-#_______________This Code was generated using GenAI tool: Codify, Please check for accuracy_______________#
-
 """
 Agents Package
 
@@ -14,5 +12,3 @@ from app.agents.code_agent import CodeAgent
 from app.agents.test_agent import TestAgent
 
 __all__ = ["RequirementAgent", "CodeAgent", "TestAgent"]
-
-#__________________________GenAI: Generated code ends here______________________________#
