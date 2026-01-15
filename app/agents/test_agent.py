@@ -82,60 +82,125 @@ class TestAgent:
         """
         logger.info(f"Generating tests for ticket: {ticket_id}")
         
-        # TODO: Implement actual LLM-based test generation
-        # For now, return mock data to demonstrate the structure
-        
-        mock_tests = [
-            GeneratedTest(
-                name="test_authenticate_valid_credentials",
-                description="Test authentication with valid email and password",
-                test_type="unit",
-                code=self._generate_mock_test_valid(),
-                covers_requirement="REQ-001"
-            ),
-            GeneratedTest(
-                name="test_authenticate_invalid_credentials",
-                description="Test authentication with invalid credentials",
-                test_type="unit",
-                code=self._generate_mock_test_invalid(),
-                covers_requirement="REQ-001"
-            ),
-            GeneratedTest(
-                name="test_authenticate_empty_input",
-                description="Test authentication with empty input (edge case)",
-                test_type="unit",
-                code=self._generate_mock_test_edge_case(),
-                covers_requirement="REQ-001"
-            ),
-            GeneratedTest(
-                name="test_logout_success",
-                description="Test successful logout",
-                test_type="unit",
-                code=self._generate_mock_test_logout(),
-                covers_requirement="REQ-002"
-            ),
-            GeneratedTest(
-                name="test_authentication_performance",
-                description="Test authentication completes within 3 seconds",
-                test_type="integration",
-                code=self._generate_mock_test_performance(),
-                covers_requirement="REQ-003"
+        try:
+            from langchain_openai import ChatOpenAI
+            from langchain_core.messages import HumanMessage, SystemMessage
+            from app.config import get_settings
+            import json
+            
+            settings = get_settings()
+            
+            if not settings.openai_api_key:
+                raise ValueError("OpenAI API key not configured")
+            
+            llm = ChatOpenAI(
+                model=settings.openai_model,
+                api_key=settings.openai_api_key,
+                temperature=0.3
             )
-        ]
-        
-        test_file_content = self._combine_tests(mock_tests, test_framework)
-        
-        result = TestGenerationResult(
-            ticket_id=ticket_id,
-            tests=mock_tests,
-            test_file=test_file_content,
-            summary=f"Generated {len(mock_tests)} tests for ticket {ticket_id}",
-            coverage_estimate=85.0,
-            confidence_score=0.82
-        )
-        
-        logger.info(f"Completed test generation for {ticket_id}: {len(mock_tests)} tests generated")
-        return result
+            
+            # Format requirements for the prompt
+            req_text = "\n".join([
+                f"- {r.get('description', r.get('id', 'Requirement'))}" 
+                for r in requirements
+            ]) if requirements else "No specific requirements"
+            
+            system_prompt = """You are an expert test engineer. Generate comprehensive test cases for the given code.
+
+Return ONLY valid JSON in this exact format (no markdown code blocks around the JSON):
+{
+  "tests": [
+    {
+      "name": "test_function_name",
+      "description": "What this test verifies",
+      "test_type": "unit",
+      "code": "Full pytest code for this test...",
+      "covers_requirement": "REQ-001"
+    }
+  ],
+  "test_file": "Complete pytest file with all tests combined...",
+  "summary": "Brief summary",
+  "coverage_estimate": 85.0,
+  "confidence_score": 0.85
+}
+
+test_type: unit, integration, or e2e
+Generate comprehensive tests with edge cases and error handling."""
+
+            user_prompt = f"""Generate tests for this code:
+
+CODE TO TEST:
+{code[:3000] if code else 'No code provided'}
+
+REQUIREMENTS TO COVER:
+{req_text}
+
+Generate 4-6 pytest test cases covering:
+1. Happy path tests
+2. Edge cases
+3. Error handling
+4. Integration tests if applicable"""
+
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt)
+            ]
+            
+            response = await llm.ainvoke(messages)
+            response_text = response.content.strip()
+            
+            # Clean up response if it has markdown code blocks
+            if response_text.startswith("```"):
+                response_text = response_text.split("```")[1]
+                if response_text.startswith("json"):
+                    response_text = response_text[4:]
+            response_text = response_text.strip()
+            
+            parsed = json.loads(response_text)
+            
+            tests = []
+            for t in parsed.get("tests", []):
+                tests.append(GeneratedTest(
+                    name=t.get("name", "test_unnamed"),
+                    description=t.get("description", ""),
+                    test_type=t.get("test_type", "unit"),
+                    code=t.get("code", ""),
+                    covers_requirement=t.get("covers_requirement")
+                ))
+            
+            result = TestGenerationResult(
+                ticket_id=ticket_id,
+                tests=tests,
+                test_file=parsed.get("test_file", self._combine_tests(tests, test_framework)),
+                summary=parsed.get("summary", f"Generated {len(tests)} tests"),
+                coverage_estimate=parsed.get("coverage_estimate", 80.0),
+                confidence_score=parsed.get("confidence_score", 0.8)
+            )
+            
+            logger.info(f"Completed test generation for {ticket_id}: {len(tests)} tests generated")
+            return result
+            
+        except Exception as e:
+            logger.error(f"LLM test generation failed: {e}, falling back to mock data")
+            # Fallback to mock data on error
+            mock_tests = [
+                GeneratedTest(
+                    name="test_basic_functionality",
+                    description=f"Basic test (fallback due to: {str(e)[:50]})",
+                    test_type="unit",
+                    code="def test_basic():\n    assert True",
+                    covers_requirement="REQ-001"
+                )
+            ]
+            
+            return TestGenerationResult(
+                ticket_id=ticket_id,
+                tests=mock_tests,
+                test_file=self._combine_tests(mock_tests, test_framework),
+                summary=f"Fallback test generation: {str(e)}",
+                coverage_estimate=20.0,
+                confidence_score=0.3
+            )
     
     def _generate_mock_test_valid(self) -> str:
         """Generate mock test for valid credentials"""

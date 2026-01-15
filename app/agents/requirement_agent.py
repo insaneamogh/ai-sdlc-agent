@@ -82,41 +82,120 @@ class RequirementAgent:
         """
         logger.info(f"Analyzing ticket: {ticket_id}")
         
-        # TODO: Implement actual LLM-based analysis
-        # For now, return mock data to demonstrate the structure
-        
-        # This is where we'll add LangChain integration:
-        # 1. Create a prompt template for requirement extraction
-        # 2. Call the LLM with the ticket data
-        # 3. Parse the structured output
-        # 4. Return the results
-        
-        mock_requirements = [
-            ExtractedRequirement(
-                id=f"{ticket_id}-REQ-001",
-                type="functional",
-                description=f"Primary requirement from: {title}",
-                priority="high",
-                acceptance_criteria=["Requirement is implemented", "Tests pass"],
-                edge_cases=["Handle empty input", "Handle special characters"]
-            ),
-            ExtractedRequirement(
-                id=f"{ticket_id}-REQ-002",
-                type="non-functional",
-                description="System should respond within 3 seconds",
-                priority="medium"
+        try:
+            from langchain_openai import ChatOpenAI
+            from langchain_core.messages import HumanMessage, SystemMessage
+            from app.config import get_settings
+            import json
+            
+            settings = get_settings()
+            
+            if not settings.openai_api_key:
+                raise ValueError("OpenAI API key not configured")
+            
+            llm = ChatOpenAI(
+                model=settings.openai_model,
+                api_key=settings.openai_api_key,
+                temperature=0.3
             )
-        ]
-        
-        result = RequirementAnalysisResult(
-            ticket_id=ticket_id,
-            requirements=mock_requirements,
-            summary=f"Extracted {len(mock_requirements)} requirements from ticket {ticket_id}",
-            confidence_score=0.85
-        )
-        
-        logger.info(f"Completed analysis for {ticket_id}: {len(mock_requirements)} requirements found")
-        return result
+            
+            system_prompt = """You are an expert requirements analyst. Analyze the given ticket/repository information and extract structured requirements.
+
+Return ONLY valid JSON in this exact format (no markdown, no code blocks):
+{
+  "requirements": [
+    {
+      "id": "REQ-001",
+      "type": "functional",
+      "description": "Clear requirement description",
+      "priority": "high",
+      "acceptance_criteria": ["criterion 1", "criterion 2"],
+      "edge_cases": ["edge case 1"]
+    }
+  ],
+  "summary": "Brief summary of analysis",
+  "confidence_score": 0.85
+}
+
+Types: functional, non-functional, constraint
+Priorities: high, medium, low"""
+
+            user_prompt = f"""Analyze this and extract requirements:
+
+TITLE: {title}
+
+DESCRIPTION:
+{description}
+
+{f'ACCEPTANCE CRITERIA: {acceptance_criteria}' if acceptance_criteria else ''}
+
+Extract at least 3-5 meaningful requirements based on the content."""
+
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt)
+            ]
+            
+            response = await llm.ainvoke(messages)
+            response_text = response.content.strip()
+            
+            # Clean up response if it has markdown code blocks
+            if response_text.startswith("```"):
+                response_text = response_text.split("```")[1]
+                if response_text.startswith("json"):
+                    response_text = response_text[4:]
+            response_text = response_text.strip()
+            
+            parsed = json.loads(response_text)
+            
+            requirements = []
+            for i, req in enumerate(parsed.get("requirements", [])):
+                requirements.append(ExtractedRequirement(
+                    id=req.get("id", f"{ticket_id}-REQ-{i+1:03d}"),
+                    type=req.get("type", "functional"),
+                    description=req.get("description", ""),
+                    priority=req.get("priority", "medium"),
+                    acceptance_criteria=req.get("acceptance_criteria"),
+                    edge_cases=req.get("edge_cases")
+                ))
+            
+            result = RequirementAnalysisResult(
+                ticket_id=ticket_id,
+                requirements=requirements,
+                summary=parsed.get("summary", f"Extracted {len(requirements)} requirements"),
+                confidence_score=parsed.get("confidence_score", 0.8),
+                raw_analysis=response_text
+            )
+            
+            logger.info(f"Completed analysis for {ticket_id}: {len(requirements)} requirements found")
+            return result
+            
+        except Exception as e:
+            logger.error(f"LLM analysis failed: {e}, falling back to mock data")
+            # Fallback to mock data on error
+            mock_requirements = [
+                ExtractedRequirement(
+                    id=f"{ticket_id}-REQ-001",
+                    type="functional",
+                    description=f"Primary requirement from: {title}",
+                    priority="high",
+                    acceptance_criteria=["Requirement is implemented", "Tests pass"],
+                    edge_cases=["Handle empty input", "Handle special characters"]
+                ),
+                ExtractedRequirement(
+                    id=f"{ticket_id}-REQ-002",
+                    type="non-functional",
+                    description="System should respond within 3 seconds",
+                    priority="medium"
+                )
+            ]
+            
+            return RequirementAnalysisResult(
+                ticket_id=ticket_id,
+                requirements=mock_requirements,
+                summary=f"Fallback analysis: {str(e)}",
+                confidence_score=0.5
+            )
     
     def _create_analysis_prompt(
         self,

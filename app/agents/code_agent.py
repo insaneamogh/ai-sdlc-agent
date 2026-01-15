@@ -79,42 +79,120 @@ class CodeAgent:
         """
         logger.info(f"Generating code for ticket: {ticket_id}")
         
-        # TODO: Implement actual LLM-based code generation
-        # For now, return mock data to demonstrate the structure
-        
-        # This is where we'll add:
-        # 1. RAG retrieval of similar code patterns
-        # 2. Prompt construction with requirements and patterns
-        # 3. LLM code generation
-        # 4. Code validation and formatting
-        
-        mock_files = [
-            GeneratedFile(
-                filename="authentication.py",
-                language="python",
-                content=self._generate_mock_code(requirements),
-                description="Authentication module based on requirements",
-                line_count=25
-            ),
-            GeneratedFile(
-                filename="authentication_utils.py",
-                language="python",
-                content=self._generate_mock_utils(),
-                description="Utility functions for authentication",
-                line_count=15
+        try:
+            from langchain_openai import ChatOpenAI
+            from langchain_core.messages import HumanMessage, SystemMessage
+            from app.config import get_settings
+            import json
+            
+            settings = get_settings()
+            
+            if not settings.openai_api_key:
+                raise ValueError("OpenAI API key not configured")
+            
+            llm = ChatOpenAI(
+                model=settings.openai_model,
+                api_key=settings.openai_api_key,
+                temperature=0.3
             )
-        ]
-        
-        result = CodeGenerationResult(
-            ticket_id=ticket_id,
-            files=mock_files,
-            summary=f"Generated {len(mock_files)} files for ticket {ticket_id}",
-            patterns_used=["singleton_pattern", "factory_pattern"],
-            confidence_score=0.80
-        )
-        
-        logger.info(f"Completed code generation for {ticket_id}: {len(mock_files)} files generated")
-        return result
+            
+            # Format requirements for the prompt
+            req_text = "\n".join([
+                f"- {r.get('description', r.get('id', 'Requirement'))}" 
+                for r in requirements
+            ]) if requirements else "No specific requirements provided"
+            
+            system_prompt = """You are an expert software engineer. Generate production-quality code based on the given requirements.
+
+Return ONLY valid JSON in this exact format (no markdown code blocks around the JSON):
+{
+  "files": [
+    {
+      "filename": "module_name.py",
+      "language": "python",
+      "content": "# Full code content here...",
+      "description": "What this file does"
+    }
+  ],
+  "summary": "Brief summary of generated code",
+  "patterns_used": ["pattern1", "pattern2"],
+  "confidence_score": 0.85
+}
+
+Generate clean, well-documented, production-ready code with proper error handling."""
+
+            user_prompt = f"""Generate code for these requirements:
+
+REQUIREMENTS:
+{req_text}
+
+CONTEXT:
+{json.dumps(context) if context else 'No additional context'}
+
+Generate 2-3 Python files that implement these requirements with:
+1. Main implementation file
+2. Utility/helper functions
+3. Proper docstrings and type hints"""
+
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt)
+            ]
+            
+            response = await llm.ainvoke(messages)
+            response_text = response.content.strip()
+            
+            # Clean up response if it has markdown code blocks
+            if response_text.startswith("```"):
+                response_text = response_text.split("```")[1]
+                if response_text.startswith("json"):
+                    response_text = response_text[4:]
+            response_text = response_text.strip()
+            
+            parsed = json.loads(response_text)
+            
+            files = []
+            for f in parsed.get("files", []):
+                content = f.get("content", "")
+                files.append(GeneratedFile(
+                    filename=f.get("filename", "generated.py"),
+                    language=f.get("language", "python"),
+                    content=content,
+                    description=f.get("description", "Generated file"),
+                    line_count=len(content.split("\n"))
+                ))
+            
+            result = CodeGenerationResult(
+                ticket_id=ticket_id,
+                files=files,
+                summary=parsed.get("summary", f"Generated {len(files)} files"),
+                patterns_used=parsed.get("patterns_used", []),
+                confidence_score=parsed.get("confidence_score", 0.8)
+            )
+            
+            logger.info(f"Completed code generation for {ticket_id}: {len(files)} files generated")
+            return result
+            
+        except Exception as e:
+            logger.error(f"LLM code generation failed: {e}, falling back to mock data")
+            # Fallback to mock data on error
+            mock_files = [
+                GeneratedFile(
+                    filename="implementation.py",
+                    language="python",
+                    content=self._generate_mock_code(requirements),
+                    description=f"Generated code (fallback due to: {str(e)[:50]})",
+                    line_count=25
+                )
+            ]
+            
+            return CodeGenerationResult(
+                ticket_id=ticket_id,
+                files=mock_files,
+                summary=f"Fallback generation: {str(e)}",
+                patterns_used=[],
+                confidence_score=0.5
+            )
     
     def _generate_mock_code(self, requirements: List[Dict[str, Any]]) -> str:
         """Generate mock code for demonstration"""

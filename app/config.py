@@ -9,6 +9,11 @@ from pydantic_settings import BaseSettings
 from pydantic import Field
 from functools import lru_cache
 from typing import Optional
+from pathlib import Path
+
+# Get the project root directory (parent of app/)
+PROJECT_ROOT = Path(__file__).parent.parent
+ENV_FILE_PATH = PROJECT_ROOT / ".env"
 
 
 class Settings(BaseSettings):
@@ -89,7 +94,7 @@ class Settings(BaseSettings):
     
     class Config:
         """Pydantic configuration"""
-        env_file = ".env"
+        env_file = str(ENV_FILE_PATH)
         env_file_encoding = "utf-8"
         case_sensitive = False
 

@@ -10,6 +10,7 @@ from typing import Optional, List, Dict, Any
 from enum import Enum
 from datetime import datetime
 from app.services.github_service import GitHubService
+from app.utils.logger import logger
 
 router = APIRouter()
 
@@ -162,233 +163,111 @@ async def analyze_ticket(request: AnalyzeRequest):
     The action parameter determines which agents are executed.
     """
     import uuid
+    # Use STRICT orchestrator that ACTUALLY fetches GitHub content
+    from app.orchestration import SDLCOrchestrator
+    
     request_id = str(uuid.uuid4())[:8]
     
-    # For now, return mock data
-    # This will be replaced with actual agent orchestration
-    
-    mock_requirements = [
-        Requirement(
-            id="REQ-001",
-            type="functional",
-            description="User must be able to authenticate using OAuth 2.0",
-            priority="high"
-        ),
-        Requirement(
-            id="REQ-002",
-            type="functional",
-            description="System must validate user credentials against the identity provider",
-            priority="high"
-        ),
-        Requirement(
-            id="REQ-003",
-            type="non-functional",
-            description="Authentication must complete within 3 seconds",
-            priority="medium"
-        ),
-        Requirement(
-            id="REQ-004",
-            type="constraint",
-            description="Must support multi-factor authentication",
-            priority="high"
-        )
-    ]
-    
-    mock_agents = [
-        AgentResult(
-            agent_name="RequirementAnalyzer",
-            status=AgentStatus.COMPLETED,
-            started_at=datetime.utcnow(),
-            completed_at=datetime.utcnow(),
-            result={"requirements_count": len(mock_requirements)}
-        )
-    ]
     # Top-level GitHub context to include in response
-    github_pr = None
+    github_pr_info = None
     github_diff = None
     github_files: List[Dict[str, Any]] = []
-    generated_code = None
     
-    if request.action in [ActionType.GENERATE_CODE, ActionType.FULL_PIPELINE]:
-        mock_agents.append(
-            AgentResult(
-                agent_name="CodeGenerator",
-                status=AgentStatus.COMPLETED,
-                started_at=datetime.utcnow(),
-                completed_at=datetime.utcnow(),
-                result={"files_generated": 2}
-            )
-        )
+    # Fetch GitHub context if provided
+    ticket_title = f"Ticket {request.ticket_id}"
+    ticket_description = f"Analysis request for ticket {request.ticket_id}"
     
-    if request.action in [ActionType.GENERATE_TESTS, ActionType.FULL_PIPELINE]:
-        mock_agents.append(
-            AgentResult(
-                agent_name="TestGenerator",
-                status=AgentStatus.COMPLETED,
-                started_at=datetime.utcnow(),
-                completed_at=datetime.utcnow(),
-                result={"tests_generated": 5}
-            )
-        )
-    # If GitHub context was provided, fetch PR/diff/files and include in agent results
-    if request.github_pr or request.github_repo:
+    if request.github_repo:
         gh_service = GitHubService()
         try:
-            if request.github_pr:
-                # Support formats: full URL, or owner/repo#number
-                pr_number = None
-                repo_ref = None
-
-                # owner/repo#number
-                if "#" in request.github_pr and "/" in request.github_pr.split("#")[0]:
+            owner, repo_name = gh_service._parse_repo_url(request.github_repo)
+            repo_ref = f"{owner}/{repo_name}" if owner and repo_name else request.github_repo
+            github_files = await gh_service.list_files(repo_ref)
+            
+            # Try to get README for context
+            readme_content = ""
+            for f in github_files:
+                if f.get("name", "").lower().startswith("readme"):
                     try:
-                        parts = request.github_pr.split("#")
-                        repo_ref = parts[0]
-                        pr_number = int(parts[1])
-                    except Exception:
-                        pr_number = None
-
-                # URL form
-                if pr_number is None:
-                    try:
-                        segs = request.github_pr.rstrip("/").split("/")
-                        pr_number = int(segs[-1])
-                        repo_url = "/".join(segs[:-2])
-                        owner, repo_name = gh_service._parse_repo_url(repo_url)
-                        repo_ref = f"{owner}/{repo_name}" if owner and repo_name else repo_url
-                    except Exception:
-                        pr_number = None
-
-                pr_info = None
-                pr_diff = None
-                files = []
-                if pr_number and repo_ref:
-                    pr_info = await gh_service.get_pr(repo_ref, pr_number)
-                    pr_diff = await gh_service.get_pr_diff(repo_ref, pr_number)
-                    files = await gh_service.list_files(repo_ref)
-
-                    # parse added hunks from diff into generated_code
-                    generated_from_diff = []
-                    if pr_diff:
-                        current_file = None
-                        hunk_lines = []
-                        for line in pr_diff.splitlines():
-                            if line.startswith('diff --git'):
-                                # flush previous
-                                if current_file and hunk_lines:
-                                    generated_from_diff.append(f"# {current_file}\n" + "\n".join(hunk_lines))
-                                current_file = None
-                                hunk_lines = []
-                            elif line.startswith('+++ b/') or line.startswith('+++ '):
-                                current_file = line.split('+++ b/')[-1].strip()
-                            elif line.startswith('+') and not line.startswith('+++'):
-                                hunk_lines.append(line[1:])
-                        if current_file and hunk_lines:
-                            generated_from_diff.append(f"# {current_file}\n" + "\n".join(hunk_lines))
-
-                    mock_agents.append(
-                        AgentResult(
-                            agent_name="GitHubFetcher",
-                            status=AgentStatus.COMPLETED,
-                            started_at=datetime.utcnow(),
-                            completed_at=datetime.utcnow(),
-                            result={
-                                "pr": pr_info.dict() if pr_info else None,
-                                "diff": pr_diff,
-                                "files": files
-                            }
-                        )
-                    )
-                    github_pr = pr_info.dict() if pr_info else None
-                    github_diff = pr_diff
-                    github_files = files
-                    if pr_diff and generated_from_diff:
-                        generated_code = "\n\n---\n\n".join(generated_from_diff)
-            else:
-                # Only a repo was provided: list files at repo root
-                owner, repo_name = gh_service._parse_repo_url(request.github_repo)
-                repo_ref = f"{owner}/{repo_name}" if owner and repo_name else request.github_repo
-                files = await gh_service.list_files(repo_ref)
-                # Attempt to fetch contents of a few useful files to populate generated_code
-                fetched_contents = []
-                try:
-                    # Prefer README.md if present
-                    readme_path = None
-                    for f in files:
-                        if f.get("name", "").lower().startswith("readme"):
-                            readme_path = f.get("path")
-                            break
-
-                    if readme_path:
-                        rf = await gh_service.get_file(repo_ref, readme_path)
+                        rf = await gh_service.get_file(repo_ref, f.get("path"))
                         if rf and rf.content:
-                            fetched_contents.append(f"# {readme_path}\n" + rf.content)
-
-                    # Fetch up to 4 top-level code files (.py, .md, .txt, .json)
-                    fetched = 0
-                    for f in files:
-                        if fetched >= 4:
+                            readme_content = rf.content
                             break
-                        if f.get("type") != "file":
-                            continue
-                        path = f.get("path")
-                        if path and path.lower().endswith(('.py', '.md', '.txt', '.json', '.yaml', '.yml')) and path != readme_path:
-                            try:
-                                gf = await gh_service.get_file(repo_ref, path)
-                                if gf and gf.content:
-                                    fetched_contents.append(f"# {path}\n" + gf.content)
-                                    fetched += 1
-                            except Exception:
-                                continue
-                except Exception:
-                    fetched_contents = []
-
-                mock_agents.append(
-                    AgentResult(
-                        agent_name="GitHubFetcher",
-                        status=AgentStatus.COMPLETED,
-                        started_at=datetime.utcnow(),
-                        completed_at=datetime.utcnow(),
-                        result={"files": files}
-                    )
-                )
-                github_pr = None
-                github_diff = None
-                github_files = files
-                # If we fetched any file contents, set generated_code to their concatenation
-                if not github_diff and fetched_contents:
-                    generated_code = "\n\n---\n\n".join(fetched_contents)
-                else:
-                    generated_code = None
+                    except Exception:
+                        pass
+            
+            ticket_title = f"Analysis of {repo_ref}"
+            ticket_description = f"Repository: {repo_ref}\n\nFiles: {len(github_files)} files found.\n\n{readme_content[:2000] if readme_content else 'No README found.'}"
+            
         except Exception as e:
-            mock_agents.append(
-                AgentResult(
-                    agent_name="GitHubFetcher",
-                    status=AgentStatus.FAILED,
-                    started_at=datetime.utcnow(),
-                    completed_at=datetime.utcnow(),
-                    error=str(e)
-                )
-            )
+            logger.error(f"Failed to fetch GitHub context: {e}")
         finally:
             try:
                 await gh_service.close()
             except Exception:
                 pass
+    
+    # Run the actual orchestrator
+    orchestrator = SDLCOrchestrator()
+    result = await orchestrator.run(
+        ticket_id=request.ticket_id,
+        ticket_title=ticket_title,
+        ticket_description=ticket_description,
+        action=request.action.value,
+        github_repo=request.github_repo,
+        github_pr=request.github_pr
+    )
+    
+    # Convert orchestrator result to response format
+    requirements = []
+    if result.get("requirements"):
+        for i, req in enumerate(result["requirements"]):
+            requirements.append(Requirement(
+                id=req.get("id", f"REQ-{i+1:03d}"),
+                type=req.get("type", "functional"),
+                description=req.get("description", ""),
+                priority=req.get("priority", "medium")
+            ))
+    
+    agents = []
+    for agent_result in result.get("agent_results", []):
+        # Handle both old and new orchestrator keys
+        agent_name = agent_result.get("agent_name") or agent_result.get("agent", "Unknown")
+        agents.append(AgentResult(
+            agent_name=agent_name,
+            status=AgentStatus.COMPLETED if agent_result.get("status") == "completed" else AgentStatus.FAILED,
+            started_at=datetime.utcnow(),
+            completed_at=datetime.utcnow(),
+            result=agent_result.get("result"),
+            error=agent_result.get("error")
+        ))
+    
+    # If no agents ran successfully, add error info
+    if not agents:
+        agents.append(AgentResult(
+            agent_name="Orchestrator",
+            status=AgentStatus.FAILED if result.get("errors") else AgentStatus.COMPLETED,
+            started_at=datetime.utcnow(),
+            completed_at=datetime.utcnow(),
+            error="; ".join(result.get("errors", [])) if result.get("errors") else None
+        ))
+    
+    generated_code = result.get("generated_code") or "# No code generated"
+    generated_tests = result.get("generated_tests") or "# No tests generated"
 
     return AnalyzeResponse(
         request_id=request_id,
         ticket_id=request.ticket_id,
         action=request.action,
-        status=AgentStatus.COMPLETED,
-        agents=mock_agents,
-        requirements=mock_requirements,
-        generated_code=github_diff or generated_code or "# Generated code will appear here\ndef authenticate_user():\n    pass",
-        generated_tests="# Generated tests will appear here\ndef test_authenticate_user():\n    pass",
-        github_pr=github_pr,
+        status=AgentStatus.COMPLETED if not result.get("errors") else AgentStatus.FAILED,
+        agents=agents,
+        requirements=requirements,
+        generated_code=generated_code,
+        generated_tests=generated_tests,
+        github_pr=github_pr_info,
         github_diff=github_diff,
         github_files=github_files,
-        message=f"Successfully analyzed ticket {request.ticket_id}"
+        message=f"Successfully analyzed ticket {request.ticket_id}" if not result.get("errors") else f"Errors: {'; '.join(result.get('errors', []))}"
     )
 
 

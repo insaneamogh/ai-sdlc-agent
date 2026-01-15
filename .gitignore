@@ -7,6 +7,11 @@
 .env.local
 .env.*.local
 
+# Node.js
+node_modules/
+ui/node_modules/
+package-lock.json
+
 # Python Virtual Environment
 venv/
 .venv/
