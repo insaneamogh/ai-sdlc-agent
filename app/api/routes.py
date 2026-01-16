@@ -2,13 +2,21 @@
 API Routes Module
 
 This module defines all API endpoints for the AI SDLC Agent.
+
+Enhanced with:
+- Server-Sent Events (SSE) streaming for real-time progress
+- Workflow state retrieval and resume endpoints
+- Thread-based execution tracking
 """
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from enum import Enum
 from datetime import datetime
+import json
+import asyncio
 from app.services.github_service import GitHubService
 from app.utils.logger import logger
 
@@ -411,3 +419,300 @@ async def fetch_github_file(req: GitHubFileRequest):
             await gh_service.close()
         except Exception:
             pass
+
+
+# ===========================================
+# Streaming & Workflow Management Endpoints
+# ===========================================
+
+class StreamAnalyzeRequest(BaseModel):
+    """Request model for streaming analyze endpoint"""
+    ticket_id: str = Field(
+        ...,
+        description="Jira ticket ID (e.g., PROJ-123)",
+        example="PROJ-123"
+    )
+    title: Optional[str] = Field(
+        default=None,
+        description="Ticket title (optional, will be fetched if not provided)"
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Ticket description (optional, will be fetched if not provided)"
+    )
+    action: ActionType = Field(
+        default=ActionType.FULL_PIPELINE,
+        description="Action to perform on the ticket"
+    )
+    acceptance_criteria: Optional[str] = Field(
+        default=None,
+        description="Acceptance criteria for the ticket"
+    )
+    github_repo: Optional[str] = Field(
+        default=None,
+        description="GitHub repository URL for code context"
+    )
+    github_pr: Optional[str] = Field(
+        default=None,
+        description="GitHub PR URL for additional context"
+    )
+    thread_id: Optional[str] = Field(
+        default=None,
+        description="Thread ID for checkpointing (auto-generated if not provided)"
+    )
+
+
+class ResumeRequest(BaseModel):
+    """Request model for resuming a workflow"""
+    thread_id: str = Field(
+        ...,
+        description="Thread ID of the workflow to resume"
+    )
+
+
+class WorkflowStateResponse(BaseModel):
+    """Response model for workflow state"""
+    thread_id: str
+    ticket_id: Optional[str] = None
+    current_agent: Optional[str] = None
+    status: str
+    requirements: Optional[List[Dict[str, Any]]] = None
+    generated_code: Optional[str] = None
+    generated_tests: Optional[str] = None
+    agent_results: List[Dict[str, Any]] = []
+    errors: List[str] = []
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+@router.post("/analyze/stream")
+async def analyze_stream(request: StreamAnalyzeRequest):
+    """
+    Stream the analysis pipeline with real-time Server-Sent Events (SSE).
+    
+    This endpoint provides real-time progress updates as each agent executes.
+    Events are streamed in SSE format for easy consumption by web clients.
+    
+    Event types:
+    - workflow_start: Pipeline has started
+    - node_start: An agent node has started execution
+    - node_complete: An agent node has completed
+    - node_error: An agent node encountered an error
+    - workflow_complete: Pipeline has finished with final results
+    - workflow_error: Pipeline encountered a fatal error
+    
+    Example usage with JavaScript:
+    ```javascript
+    const eventSource = new EventSource('/api/v1/analyze/stream', {
+        method: 'POST',
+        body: JSON.stringify({ ticket_id: 'PROJ-123', action: 'full_pipeline' })
+    });
+    
+    eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        console.log(data.event, data);
+    };
+    ```
+    """
+    from app.orchestration import SDLCOrchestrator
+    
+    # Prepare ticket info
+    ticket_title = request.title or f"Ticket {request.ticket_id}"
+    ticket_description = request.description or f"Analysis request for ticket {request.ticket_id}"
+    
+    # Fetch GitHub context if provided
+    if request.github_repo and not request.description:
+        gh_service = GitHubService()
+        try:
+            owner, repo_name = gh_service._parse_repo_url(request.github_repo)
+            repo_ref = f"{owner}/{repo_name}" if owner and repo_name else request.github_repo
+            github_files = await gh_service.list_files(repo_ref)
+            
+            # Try to get README for context
+            readme_content = ""
+            for f in github_files:
+                if f.get("name", "").lower().startswith("readme"):
+                    try:
+                        rf = await gh_service.get_file(repo_ref, f.get("path"))
+                        if rf and rf.content:
+                            readme_content = rf.content
+                            break
+                    except Exception:
+                        pass
+            
+            ticket_title = f"Analysis of {repo_ref}"
+            ticket_description = f"Repository: {repo_ref}\n\nFiles: {len(github_files)} files found.\n\n{readme_content[:2000] if readme_content else 'No README found.'}"
+            
+        except Exception as e:
+            logger.error(f"Failed to fetch GitHub context: {e}")
+        finally:
+            try:
+                await gh_service.close()
+            except Exception:
+                pass
+    
+    async def event_generator():
+        """Generate SSE events from the orchestrator stream"""
+        orchestrator = SDLCOrchestrator()
+        
+        try:
+            async for event in orchestrator.stream(
+                ticket_id=request.ticket_id,
+                ticket_title=ticket_title,
+                ticket_description=ticket_description,
+                action=request.action.value,
+                acceptance_criteria=request.acceptance_criteria,
+                github_repo=request.github_repo,
+                github_pr=request.github_pr,
+                thread_id=request.thread_id
+            ):
+                # Format as SSE
+                event_data = json.dumps(event, default=str)
+                yield f"event: {event.get('event', 'message')}\n"
+                yield f"data: {event_data}\n\n"
+                
+                # Small delay to prevent overwhelming the client
+                await asyncio.sleep(0.01)
+                
+        except Exception as e:
+            logger.error(f"Streaming error: {e}")
+            error_event = {
+                "event": "error",
+                "error": str(e),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            yield f"event: error\n"
+            yield f"data: {json.dumps(error_event)}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable nginx buffering
+        }
+    )
+
+
+@router.get("/workflow/{thread_id}/state", response_model=WorkflowStateResponse)
+async def get_workflow_state(thread_id: str):
+    """
+    Get the current state of a workflow by thread ID.
+    
+    Use this to check the current state of a running or completed workflow.
+    The state includes all accumulated results from executed agents.
+    """
+    from app.orchestration import SDLCOrchestrator
+    
+    orchestrator = SDLCOrchestrator()
+    state = await orchestrator.get_state(thread_id)
+    
+    if not state:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No workflow found with thread_id: {thread_id}"
+        )
+    
+    # Determine status based on state
+    status = "unknown"
+    if state.get("completed_at"):
+        status = "completed" if not state.get("errors") else "failed"
+    elif state.get("current_agent"):
+        status = "running"
+    elif state.get("started_at"):
+        status = "started"
+    
+    return WorkflowStateResponse(
+        thread_id=thread_id,
+        ticket_id=state.get("ticket_id"),
+        current_agent=state.get("current_agent"),
+        status=status,
+        requirements=state.get("requirements"),
+        generated_code=state.get("generated_code"),
+        generated_tests=state.get("generated_tests"),
+        agent_results=state.get("agent_results", []),
+        errors=state.get("errors", []),
+        started_at=state.get("started_at"),
+        completed_at=state.get("completed_at")
+    )
+
+
+@router.get("/workflow/{thread_id}/history")
+async def get_workflow_history(thread_id: str):
+    """
+    Get the state history of a workflow by thread ID.
+    
+    Returns a list of all state snapshots captured during workflow execution.
+    Useful for debugging and understanding the workflow progression.
+    """
+    from app.orchestration import SDLCOrchestrator
+    
+    orchestrator = SDLCOrchestrator()
+    history = await orchestrator.get_state_history(thread_id)
+    
+    if not history:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No history found for thread_id: {thread_id}"
+        )
+    
+    return {
+        "thread_id": thread_id,
+        "history_count": len(history),
+        "history": history
+    }
+
+
+@router.post("/workflow/resume")
+async def resume_workflow(request: ResumeRequest):
+    """
+    Resume a paused or interrupted workflow from its last checkpoint.
+    
+    Use this to continue a workflow that was interrupted or paused.
+    The workflow will resume from the last saved state.
+    """
+    from app.orchestration import SDLCOrchestrator
+    
+    orchestrator = SDLCOrchestrator()
+    
+    try:
+        result = await orchestrator.resume(request.thread_id)
+        
+        return {
+            "thread_id": request.thread_id,
+            "status": "completed" if not result.get("errors") else "failed",
+            "resumed": True,
+            "result": result
+        }
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Failed to resume workflow: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to resume workflow: {str(e)}"
+        )
+
+
+@router.get("/workflow/diagram")
+async def get_workflow_diagram():
+    """
+    Get the Mermaid diagram representation of the workflow.
+    
+    Returns a Mermaid diagram string that can be rendered to visualize
+    the workflow structure and agent relationships.
+    """
+    from app.orchestration import SDLCOrchestrator
+    
+    orchestrator = SDLCOrchestrator()
+    diagram = orchestrator.get_workflow_diagram()
+    
+    return {
+        "format": "mermaid",
+        "diagram": diagram,
+        "description": "SDLC Agent Workflow - Shows the flow between RequirementAnalyzer, CodeGenerator, and TestGenerator agents"
+    }

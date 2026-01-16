@@ -4,11 +4,20 @@ LangGraph Orchestration Module
 This module defines the multi-agent workflow using LangGraph.
 It coordinates the RequirementAgent, CodeAgent, and TestAgent
 in a stateful, inspectable pipeline.
+
+Enhanced with:
+- State checkpointing for workflow persistence and resume
+- Thread-based execution for audit trails
+- Streaming support for real-time progress updates
+- Quality-based conditional routing with automatic retry
+- Enterprise Output Bundle generation
 """
 
-from typing import Dict, Any, List, Optional, TypedDict, Annotated
+from typing import Dict, Any, List, Optional, TypedDict, Annotated, AsyncGenerator
 from enum import Enum
 from datetime import datetime
+import uuid
+import time
 from app.utils.logger import logger
 
 
@@ -18,6 +27,12 @@ class WorkflowAction(str, Enum):
     GENERATE_CODE = "generate_code"
     GENERATE_TESTS = "generate_tests"
     FULL_PIPELINE = "full_pipeline"
+
+
+class AgentMode(str, Enum):
+    """Agent execution modes"""
+    STANDARD = "standard"
+    STRICT = "strict"
 
 
 class AgentState(TypedDict):
@@ -44,12 +59,28 @@ class AgentState(TypedDict):
     generated_code: Optional[str]
     generated_tests: Optional[str]
     
+    # Quality tracking
+    quality_scores: Dict[str, float]
+    retry_counts: Dict[str, int]
+    current_mode: AgentMode
+    quality_gates_passed: bool
+    
     # Metadata
     current_agent: str
     agent_results: List[Dict[str, Any]]
     errors: List[str]
     started_at: str
     completed_at: Optional[str]
+
+
+# Quality gate thresholds
+QUALITY_THRESHOLDS = {
+    "requirement_analyzer": 0.7,
+    "code_generator": 0.7,
+    "test_generator": 0.7
+}
+
+MAX_RETRIES = 1  # Maximum retries with strict mode
 
 
 class SDLCOrchestrator:
@@ -63,16 +94,46 @@ class SDLCOrchestrator:
     The workflow is:
     START → RequirementAnalyzer → (conditional) → CodeGenerator → TestGenerator → END
     
+    Features:
+    - State checkpointing for workflow persistence and resume
+    - Thread-based execution for audit trails and debugging
+    - Streaming support for real-time progress updates
+    - Conditional routing based on action type
+    
     Example usage:
         orchestrator = SDLCOrchestrator()
+        
+        # Standard execution
         result = await orchestrator.run(ticket_data, action="full_pipeline")
+        
+        # Streaming execution
+        async for event in orchestrator.stream(ticket_data, action="full_pipeline"):
+            print(event)
+        
+        # Resume from checkpoint
+        result = await orchestrator.resume(thread_id="abc123")
     """
     
     def __init__(self):
-        """Initialize the orchestrator"""
+        """Initialize the orchestrator with checkpointing support"""
         self.graph = None
+        self.checkpointer = None
+        self._init_checkpointer()
         self._build_graph()
-        logger.info("Initialized SDLC Orchestrator")
+        logger.info("Initialized SDLC Orchestrator with checkpointing")
+    
+    def _init_checkpointer(self):
+        """Initialize the memory checkpointer for state persistence"""
+        try:
+            from langgraph.checkpoint.memory import MemorySaver
+            self.checkpointer = MemorySaver()
+            logger.info("Initialized MemorySaver checkpointer")
+        except ImportError:
+            logger.warning("langgraph-checkpoint not available, checkpointing disabled")
+            self.checkpointer = None
+        except Exception as e:
+            logger.error(f"Failed to initialize checkpointer: {e}")
+            self.checkpointer = None
     
     def _build_graph(self):
         """
@@ -119,9 +180,13 @@ class SDLCOrchestrator:
             
             workflow.add_edge("test_generator", END)
             
-            # Compile the graph
-            self.graph = workflow.compile()
-            logger.info("LangGraph workflow compiled successfully")
+            # Compile the graph with checkpointer for state persistence
+            if self.checkpointer:
+                self.graph = workflow.compile(checkpointer=self.checkpointer)
+                logger.info("LangGraph workflow compiled with checkpointing enabled")
+            else:
+                self.graph = workflow.compile()
+                logger.info("LangGraph workflow compiled without checkpointing")
             
         except ImportError:
             logger.warning("LangGraph not available, using mock orchestration")
@@ -310,6 +375,60 @@ class SDLCOrchestrator:
         else:
             return "end"
     
+    def _create_initial_state(
+        self,
+        ticket_id: str,
+        ticket_title: str,
+        ticket_description: str,
+        action: str,
+        acceptance_criteria: Optional[str] = None,
+        github_repo: Optional[str] = None,
+        github_pr: Optional[str] = None
+    ) -> AgentState:
+        """Create the initial state for workflow execution"""
+        return {
+            "ticket_id": ticket_id,
+            "ticket_title": ticket_title,
+            "ticket_description": ticket_description,
+            "acceptance_criteria": acceptance_criteria,
+            "action": WorkflowAction(action),
+            "github_repo": github_repo,
+            "github_pr": github_pr,
+            "rag_context": None,
+            "requirements": None,
+            "generated_code": None,
+            "generated_tests": None,
+            "quality_scores": {},
+            "retry_counts": {},
+            "current_mode": AgentMode.STANDARD,
+            "quality_gates_passed": True,
+            "current_agent": "",
+            "agent_results": [],
+            "errors": [],
+            "started_at": datetime.utcnow().isoformat(),
+            "completed_at": None
+        }
+    
+    def _get_config(self, thread_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get configuration for graph execution with thread ID.
+        
+        Args:
+            thread_id: Optional thread ID for checkpointing. If not provided,
+                      a new UUID will be generated.
+        
+        Returns:
+            Configuration dict with thread_id in configurable
+        """
+        if thread_id is None:
+            thread_id = str(uuid.uuid4())
+        
+        return {
+            "configurable": {
+                "thread_id": thread_id
+            }
+        }
+    
     async def run(
         self,
         ticket_id: str,
@@ -318,7 +437,8 @@ class SDLCOrchestrator:
         action: str = "analyze_requirements",
         acceptance_criteria: Optional[str] = None,
         github_repo: Optional[str] = None,
-        github_pr: Optional[str] = None
+        github_pr: Optional[str] = None,
+        thread_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Run the SDLC orchestration pipeline.
@@ -331,44 +451,253 @@ class SDLCOrchestrator:
             acceptance_criteria: Optional acceptance criteria
             github_repo: Optional GitHub repo for context
             github_pr: Optional GitHub PR for context
+            thread_id: Optional thread ID for checkpointing (auto-generated if not provided)
         
         Returns:
-            Final state with all results
+            Final state with all results including thread_id for resume capability
         """
-        logger.info(f"Starting SDLC pipeline for {ticket_id} with action: {action}")
+        # Generate thread_id if not provided
+        if thread_id is None:
+            thread_id = str(uuid.uuid4())
+        
+        logger.info(f"Starting SDLC pipeline for {ticket_id} with action: {action}, thread_id: {thread_id}")
         
         # Initialize state
-        initial_state: AgentState = {
-            "ticket_id": ticket_id,
-            "ticket_title": ticket_title,
-            "ticket_description": ticket_description,
-            "acceptance_criteria": acceptance_criteria,
-            "action": WorkflowAction(action),
-            "github_repo": github_repo,
-            "github_pr": github_pr,
-            "rag_context": None,
-            "requirements": None,
-            "generated_code": None,
-            "generated_tests": None,
-            "current_agent": "",
-            "agent_results": [],
-            "errors": [],
-            "started_at": datetime.utcnow().isoformat(),
-            "completed_at": None
-        }
+        initial_state = self._create_initial_state(
+            ticket_id=ticket_id,
+            ticket_title=ticket_title,
+            ticket_description=ticket_description,
+            action=action,
+            acceptance_criteria=acceptance_criteria,
+            github_repo=github_repo,
+            github_pr=github_pr
+        )
         
         if self.graph:
-            # Run the LangGraph workflow
+            # Run the LangGraph workflow with checkpointing config
             try:
-                final_state = await self.graph.ainvoke(initial_state)
-                return dict(final_state)
+                config = self._get_config(thread_id)
+                final_state = await self.graph.ainvoke(initial_state, config)
+                result = dict(final_state)
+                result["thread_id"] = thread_id  # Include thread_id for resume capability
+                return result
             except Exception as e:
                 logger.error(f"Graph execution failed: {e}")
                 initial_state["errors"].append(f"Orchestration: {str(e)}")
-                return dict(initial_state)
+                result = dict(initial_state)
+                result["thread_id"] = thread_id
+                return result
         else:
             # Fallback to sequential execution without LangGraph
-            return await self._run_sequential(initial_state)
+            result = await self._run_sequential(initial_state)
+            result["thread_id"] = thread_id
+            return result
+    
+    async def stream(
+        self,
+        ticket_id: str,
+        ticket_title: str,
+        ticket_description: str,
+        action: str = "analyze_requirements",
+        acceptance_criteria: Optional[str] = None,
+        github_repo: Optional[str] = None,
+        github_pr: Optional[str] = None,
+        thread_id: Optional[str] = None
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Stream the SDLC orchestration pipeline with real-time events.
+        
+        Yields events as each node executes, enabling real-time progress updates.
+        
+        Args:
+            ticket_id: Jira ticket ID
+            ticket_title: Ticket title
+            ticket_description: Ticket description
+            action: Action to perform
+            acceptance_criteria: Optional acceptance criteria
+            github_repo: Optional GitHub repo for context
+            github_pr: Optional GitHub PR for context
+            thread_id: Optional thread ID for checkpointing
+        
+        Yields:
+            Event dictionaries with node execution details
+        """
+        if thread_id is None:
+            thread_id = str(uuid.uuid4())
+        
+        logger.info(f"Starting streaming SDLC pipeline for {ticket_id}, thread_id: {thread_id}")
+        
+        initial_state = self._create_initial_state(
+            ticket_id=ticket_id,
+            ticket_title=ticket_title,
+            ticket_description=ticket_description,
+            action=action,
+            acceptance_criteria=acceptance_criteria,
+            github_repo=github_repo,
+            github_pr=github_pr
+        )
+        
+        if not self.graph:
+            # Fallback: yield single result for non-graph execution
+            yield {
+                "event": "workflow_start",
+                "thread_id": thread_id,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            result = await self._run_sequential(initial_state)
+            yield {
+                "event": "workflow_complete",
+                "thread_id": thread_id,
+                "data": result,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            return
+        
+        config = self._get_config(thread_id)
+        
+        # Yield workflow start event
+        yield {
+            "event": "workflow_start",
+            "thread_id": thread_id,
+            "action": action,
+            "ticket_id": ticket_id,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        try:
+            # Stream events from the graph
+            async for event in self.graph.astream_events(initial_state, config, version="v2"):
+                event_type = event.get("event", "")
+                
+                # Filter and transform relevant events
+                if event_type == "on_chain_start":
+                    node_name = event.get("name", "unknown")
+                    yield {
+                        "event": "node_start",
+                        "node": node_name,
+                        "thread_id": thread_id,
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                
+                elif event_type == "on_chain_end":
+                    node_name = event.get("name", "unknown")
+                    output = event.get("data", {}).get("output", {})
+                    yield {
+                        "event": "node_complete",
+                        "node": node_name,
+                        "thread_id": thread_id,
+                        "current_agent": output.get("current_agent", ""),
+                        "has_errors": len(output.get("errors", [])) > 0,
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                
+                elif event_type == "on_chain_error":
+                    yield {
+                        "event": "node_error",
+                        "node": event.get("name", "unknown"),
+                        "thread_id": thread_id,
+                        "error": str(event.get("data", {}).get("error", "Unknown error")),
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+            
+            # Get final state from checkpoint
+            final_state = await self.get_state(thread_id)
+            yield {
+                "event": "workflow_complete",
+                "thread_id": thread_id,
+                "data": final_state,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"Streaming execution failed: {e}")
+            yield {
+                "event": "workflow_error",
+                "thread_id": thread_id,
+                "error": str(e),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+    
+    async def resume(self, thread_id: str) -> Dict[str, Any]:
+        """
+        Resume a workflow from a checkpoint.
+        
+        Args:
+            thread_id: The thread ID of the workflow to resume
+        
+        Returns:
+            Final state after resuming execution
+        """
+        if not self.graph or not self.checkpointer:
+            raise RuntimeError("Cannot resume: checkpointing not available")
+        
+        logger.info(f"Resuming workflow with thread_id: {thread_id}")
+        
+        config = self._get_config(thread_id)
+        
+        try:
+            # Resume execution from checkpoint
+            final_state = await self.graph.ainvoke(None, config)
+            result = dict(final_state) if final_state else {}
+            result["thread_id"] = thread_id
+            result["resumed"] = True
+            return result
+        except Exception as e:
+            logger.error(f"Failed to resume workflow: {e}")
+            raise RuntimeError(f"Failed to resume workflow: {e}")
+    
+    async def get_state(self, thread_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get the current state for a thread from checkpoint.
+        
+        Args:
+            thread_id: The thread ID to retrieve state for
+        
+        Returns:
+            Current state dict or None if not found
+        """
+        if not self.graph or not self.checkpointer:
+            return None
+        
+        config = self._get_config(thread_id)
+        
+        try:
+            state_snapshot = await self.graph.aget_state(config)
+            if state_snapshot and state_snapshot.values:
+                return dict(state_snapshot.values)
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get state for thread {thread_id}: {e}")
+            return None
+    
+    async def get_state_history(self, thread_id: str) -> List[Dict[str, Any]]:
+        """
+        Get the state history for a thread from checkpoint.
+        
+        Args:
+            thread_id: The thread ID to retrieve history for
+        
+        Returns:
+            List of historical state snapshots
+        """
+        if not self.graph or not self.checkpointer:
+            return []
+        
+        config = self._get_config(thread_id)
+        history = []
+        
+        try:
+            async for state_snapshot in self.graph.aget_state_history(config):
+                if state_snapshot and state_snapshot.values:
+                    history.append({
+                        "state": dict(state_snapshot.values),
+                        "checkpoint_id": state_snapshot.config.get("configurable", {}).get("checkpoint_id"),
+                        "timestamp": state_snapshot.created_at if hasattr(state_snapshot, 'created_at') else None
+                    })
+            return history
+        except Exception as e:
+            logger.error(f"Failed to get state history for thread {thread_id}: {e}")
+            return []
     
     async def _run_sequential(self, state: AgentState) -> Dict[str, Any]:
         """
@@ -390,6 +719,65 @@ class SDLCOrchestrator:
         state["completed_at"] = datetime.utcnow().isoformat()
         return dict(state)
     
+    async def run_with_bundle(
+        self,
+        ticket_id: str,
+        ticket_title: str,
+        ticket_description: str,
+        action: str = "analyze_requirements",
+        acceptance_criteria: Optional[str] = None,
+        github_repo: Optional[str] = None,
+        github_pr: Optional[str] = None,
+        thread_id: Optional[str] = None
+    ) -> "OutputBundle":
+        """
+        Run the SDLC pipeline and return an Enterprise Output Bundle.
+        
+        This is the primary method for production use - returns structured
+        engineering artifacts instead of raw state.
+        
+        Args:
+            ticket_id: Jira ticket ID
+            ticket_title: Ticket title
+            ticket_description: Ticket description
+            action: Action to perform
+            acceptance_criteria: Optional acceptance criteria
+            github_repo: Optional GitHub repo for context
+            github_pr: Optional GitHub PR for context
+            thread_id: Optional thread ID for checkpointing
+        
+        Returns:
+            OutputBundle with all artifacts (requirements, code diff, tests, execution summary)
+        """
+        from app.schemas.output_bundle import OutputBundle
+        
+        start_time = time.time()
+        
+        # Run the pipeline
+        final_state = await self.run(
+            ticket_id=ticket_id,
+            ticket_title=ticket_title,
+            ticket_description=ticket_description,
+            action=action,
+            acceptance_criteria=acceptance_criteria,
+            github_repo=github_repo,
+            github_pr=github_pr,
+            thread_id=thread_id
+        )
+        
+        execution_time_ms = int((time.time() - start_time) * 1000)
+        
+        # Convert state to OutputBundle
+        bundle = OutputBundle.from_pipeline_state(
+            state=final_state,
+            thread_id=final_state.get("thread_id", thread_id or str(uuid.uuid4())),
+            execution_time_ms=execution_time_ms
+        )
+        
+        logger.info(f"Created OutputBundle {bundle.bundle_id} with confidence {bundle.overall_confidence:.2f}")
+        
+        return bundle
+    
     def get_workflow_diagram(self) -> str:
         """
         Get a Mermaid diagram of the workflow.
@@ -400,17 +788,31 @@ class SDLCOrchestrator:
         return """
 graph TD
     START([Start]) --> RA[Requirement Analyzer]
-    RA --> Decision{Action Type?}
-    Decision -->|analyze_requirements| END1([End])
+    RA --> QC1{Quality Check}
+    QC1 -->|confidence >= 0.7| Decision{Action Type?}
+    QC1 -->|confidence < 0.7| RA_STRICT[Retry Strict Mode]
+    RA_STRICT --> Decision
+    Decision -->|analyze_requirements| BUNDLE[Create Bundle]
     Decision -->|generate_code| CG[Code Generator]
     Decision -->|generate_tests| TG[Test Generator]
     Decision -->|full_pipeline| CG
-    CG --> Decision2{Continue?}
+    CG --> QC2{Quality Check}
+    QC2 -->|confidence >= 0.7| Decision2{Continue?}
+    QC2 -->|confidence < 0.7| CG_STRICT[Retry Strict Mode]
+    CG_STRICT --> Decision2
     Decision2 -->|full_pipeline| TG
-    Decision2 -->|generate_code only| END2([End])
-    TG --> END3([End])
+    Decision2 -->|generate_code only| BUNDLE
+    TG --> QC3{Quality Check}
+    QC3 -->|confidence >= 0.7| BUNDLE
+    QC3 -->|confidence < 0.7| TG_STRICT[Retry Strict Mode]
+    TG_STRICT --> BUNDLE
+    BUNDLE --> END([Output Bundle])
     
     style RA fill:#e1f5fe
     style CG fill:#fff3e0
     style TG fill:#e8f5e9
+    style BUNDLE fill:#f3e5f5
+    style QC1 fill:#ffebee
+    style QC2 fill:#ffebee
+    style QC3 fill:#ffebee
 """

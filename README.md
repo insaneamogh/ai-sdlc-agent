@@ -562,16 +562,113 @@ If virtual environment activation fails in PowerShell:
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
+## 🆕 Recent Enhancements
+
+### Backend Improvements
+
+#### LangGraph State Checkpointing
+The orchestration layer now supports state persistence and workflow resume:
+- **Thread-based execution**: Each workflow runs with a unique `thread_id` for tracking
+- **State checkpointing**: Workflow state is persisted using `MemorySaver`
+- **Resume capability**: Interrupted workflows can be resumed from last checkpoint
+- **State inspection**: Query current state and history via API
+
+#### Streaming API with Server-Sent Events (SSE)
+Real-time progress updates during pipeline execution:
+- **`POST /api/v1/analyze/stream`**: Stream analysis with real-time events
+- **Event types**: `workflow_start`, `node_start`, `node_complete`, `workflow_complete`
+- **Progress tracking**: Monitor each agent's execution in real-time
+
+#### New API Endpoints
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/analyze/stream` | POST | Stream analysis with SSE |
+| `/api/v1/workflow/{thread_id}/state` | GET | Get current workflow state |
+| `/api/v1/workflow/{thread_id}/history` | GET | Get state history |
+| `/api/v1/workflow/resume` | POST | Resume paused workflow |
+| `/api/v1/workflow/diagram` | GET | Get Mermaid diagram |
+
+#### Enhanced Artifact Schemas
+New comprehensive schemas for artifact management:
+- **`DiffArtifact`**: Enhanced diff with reasoning traces, RAG sources, impact analysis
+- **`StateDiagramArtifact`**: State machine diagram generation support
+- **`ArtifactBundle`**: Complete bundle aggregating all pipeline outputs
+- **`CodeArtifact`/`TestArtifact`**: Enhanced with confidence scores and traceability
+
+### Frontend Components
+
+#### WorkflowVisualizer
+Real-time workflow progress visualization:
+- Visual graph showing node states (pending, running, completed, error)
+- Event timeline with filtering
+- State inspector panel for debugging
+- Progress bar with overall completion percentage
+
+#### CodeArtifact
+Enhanced code display component:
+- Syntax highlighting with line numbers
+- Confidence badges and AI generation indicators
+- Expandable reasoning trace panel
+- RAG source attribution
+- Copy/download actions
+- Diff view toggle support
+
+#### TestSuiteMatrix
+Interactive test matrix UI:
+- Coverage summary gauges (method, branch, line, assertion density)
+- Expandable test rows with code preview
+- Test type and status filtering
+- Requirement traceability links
+- Assertion count tracking
+
+### Usage Examples
+
+#### Streaming Analysis
+```javascript
+import { analyzeStream } from './api';
+
+const cleanup = analyzeStream(
+  {
+    ticket_id: 'PROJ-123',
+    action: 'full_pipeline',
+    github_repo: 'owner/repo'
+  },
+  (event, eventType) => {
+    console.log(`${eventType}:`, event);
+  },
+  (error) => console.error(error),
+  () => console.log('Complete!')
+);
+
+// To cancel: cleanup();
+```
+
+#### Workflow State Management
+```javascript
+import { getWorkflowState, resumeWorkflow } from './api';
+
+// Get current state
+const state = await getWorkflowState('thread-123');
+
+// Resume interrupted workflow
+const result = await resumeWorkflow('thread-123');
+```
+
 ## 🛣️ Roadmap
 
 - [x] FastAPI backend with LangGraph orchestration
 - [x] React frontend with Vite
 - [x] GitHub integration
+- [x] Streaming responses with SSE
+- [x] LangGraph state checkpointing
+- [x] Enhanced UI components (WorkflowVisualizer, CodeArtifact, TestSuiteMatrix)
+- [x] Enhanced artifact schemas
 - [ ] Full Jira integration
 - [ ] ChromaDB vector store integration
 - [ ] Docker deployment
-- [ ] Streaming responses
 - [ ] Webhook support
+- [ ] Strategy pattern for strict/standard agents
+- [ ] Quality-based conditional routing
 
 ## 📝 License
 

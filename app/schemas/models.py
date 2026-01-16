@@ -330,3 +330,658 @@ class PaginatedResponse(BaseModel):
     page: int = Field(default=1)
     page_size: int = Field(default=20)
     has_more: bool = Field(default=False)
+
+
+# ===========================================
+# Enhanced Artifact Models
+# ===========================================
+
+class DiffType(str, Enum):
+    """Types of diff rendering"""
+    UNIFIED = "unified"
+    SPLIT = "split"
+    SEMANTIC = "semantic"
+
+
+class BreakingChangeRisk(str, Enum):
+    """Risk levels for breaking changes"""
+    NONE = "none"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class RAGSource(BaseModel):
+    """
+    Source document used for RAG-based generation.
+    
+    Tracks which existing code patterns or documentation
+    informed the AI's generation decisions.
+    """
+    file_path: str = Field(description="Path to the source file")
+    similarity_score: float = Field(
+        description="Similarity score (0-1) indicating relevance",
+        ge=0.0,
+        le=1.0
+    )
+    snippet: Optional[str] = Field(
+        default=None,
+        description="Relevant code snippet from the source"
+    )
+    line_range: Optional[tuple] = Field(
+        default=None,
+        description="Line range (start, end) of the relevant section"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "file_path": "src/handlers/AccountHandler.cls",
+                "similarity_score": 0.87,
+                "snippet": "public class AccountHandler { ... }",
+                "line_range": [1, 50]
+            }
+        }
+
+
+class ImpactAnalysis(BaseModel):
+    """
+    Analysis of the impact of code changes.
+    
+    Helps reviewers understand the scope and risk of changes.
+    """
+    affected_classes: List[str] = Field(
+        default=[],
+        description="Classes that may be affected by this change"
+    )
+    affected_tests: List[str] = Field(
+        default=[],
+        description="Test files that should be run/updated"
+    )
+    affected_flows: List[str] = Field(
+        default=[],
+        description="Business flows that may be impacted"
+    )
+    breaking_change_risk: BreakingChangeRisk = Field(
+        default=BreakingChangeRisk.NONE,
+        description="Risk level for breaking changes"
+    )
+    suggested_review_focus: List[str] = Field(
+        default=[],
+        description="Areas reviewers should focus on"
+    )
+    deployment_considerations: List[str] = Field(
+        default=[],
+        description="Things to consider during deployment"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "affected_classes": ["AccountService", "AccountController"],
+                "affected_tests": ["AccountServiceTest", "AccountControllerTest"],
+                "affected_flows": ["Account Creation", "Account Update"],
+                "breaking_change_risk": "low",
+                "suggested_review_focus": ["Error handling", "Null checks"],
+                "deployment_considerations": ["Run data migration first"]
+            }
+        }
+
+
+class DiffLine(BaseModel):
+    """A single line in a diff"""
+    line_number: Optional[int] = Field(
+        default=None,
+        description="Line number in the file"
+    )
+    old_line_number: Optional[int] = Field(
+        default=None,
+        description="Line number in the old version"
+    )
+    new_line_number: Optional[int] = Field(
+        default=None,
+        description="Line number in the new version"
+    )
+    type: str = Field(
+        description="Line type: 'add', 'remove', 'context', 'header'"
+    )
+    content: str = Field(description="Line content")
+    reasoning: Optional[str] = Field(
+        default=None,
+        description="AI reasoning for this specific change"
+    )
+
+
+class DiffHunk(BaseModel):
+    """A hunk (section) of changes in a diff"""
+    old_start: int = Field(description="Starting line in old file")
+    old_count: int = Field(description="Number of lines in old file")
+    new_start: int = Field(description="Starting line in new file")
+    new_count: int = Field(description="Number of lines in new file")
+    changes: List[DiffLine] = Field(
+        default=[],
+        description="Lines in this hunk"
+    )
+    semantic_label: Optional[str] = Field(
+        default=None,
+        description="Semantic description of change type",
+        examples=["method_addition", "import_change", "refactor", "bug_fix"]
+    )
+    summary: Optional[str] = Field(
+        default=None,
+        description="Brief summary of what this hunk changes"
+    )
+
+
+class DiffMetadata(BaseModel):
+    """
+    Metadata enriching a diff with AI-generated context.
+    
+    Provides transparency into why changes were made and
+    what informed the AI's decisions.
+    """
+    reasoning_trace: List[str] = Field(
+        default=[],
+        description="Step-by-step reasoning for the changes"
+    )
+    rag_sources: List[RAGSource] = Field(
+        default=[],
+        description="Source documents that informed the changes"
+    )
+    impact_analysis: Optional[ImpactAnalysis] = Field(
+        default=None,
+        description="Analysis of change impact"
+    )
+    confidence_score: float = Field(
+        default=0.0,
+        description="AI confidence in the changes (0-1)",
+        ge=0.0,
+        le=1.0
+    )
+    generation_model: Optional[str] = Field(
+        default=None,
+        description="Model used to generate the changes"
+    )
+    generation_timestamp: Optional[datetime] = Field(
+        default=None,
+        description="When the changes were generated"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "reasoning_trace": [
+                    "Analyzed 3 similar patterns from codebase",
+                    "Applied trigger handler best practice",
+                    "Added null checks based on existing patterns"
+                ],
+                "rag_sources": [],
+                "confidence_score": 0.94,
+                "generation_model": "gpt-4",
+                "generation_timestamp": "2024-01-15T10:30:00Z"
+            }
+        }
+
+
+class DiffArtifact(BaseModel):
+    """
+    Enhanced diff artifact with metadata and reasoning.
+    
+    Represents code changes with full context about why
+    changes were made and their potential impact.
+    """
+    file_path: str = Field(description="Path to the file being changed")
+    diff_type: DiffType = Field(
+        default=DiffType.UNIFIED,
+        description="Type of diff rendering"
+    )
+    hunks: List[DiffHunk] = Field(
+        default=[],
+        description="Diff hunks (sections of changes)"
+    )
+    metadata: DiffMetadata = Field(
+        default_factory=DiffMetadata,
+        description="Metadata about the changes"
+    )
+    raw_diff: Optional[str] = Field(
+        default=None,
+        description="Raw unified diff string"
+    )
+    old_content: Optional[str] = Field(
+        default=None,
+        description="Original file content"
+    )
+    new_content: Optional[str] = Field(
+        default=None,
+        description="New file content after changes"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "file_path": "force-app/main/default/classes/AccountHandler.cls",
+                "diff_type": "unified",
+                "hunks": [],
+                "metadata": {},
+                "raw_diff": "--- a/AccountHandler.cls\n+++ b/AccountHandler.cls\n..."
+            }
+        }
+
+
+class StateDiagramFormat(str, Enum):
+    """Output formats for state diagrams"""
+    MERMAID = "mermaid"
+    PLANTUML = "plantuml"
+    DOT = "dot"
+    JSON = "json"
+
+
+class StateNode(BaseModel):
+    """A node (state) in a state machine diagram"""
+    id: str = Field(description="Unique identifier for the state")
+    name: str = Field(description="Display name of the state")
+    description: Optional[str] = Field(
+        default=None,
+        description="Description of what this state represents"
+    )
+    is_initial: bool = Field(
+        default=False,
+        description="Whether this is the initial state"
+    )
+    is_final: bool = Field(
+        default=False,
+        description="Whether this is a final state"
+    )
+    metadata: Dict[str, Any] = Field(
+        default={},
+        description="Additional metadata about the state"
+    )
+
+
+class StateTransition(BaseModel):
+    """A transition between states in a state machine"""
+    id: str = Field(description="Unique identifier for the transition")
+    from_state: str = Field(description="Source state ID")
+    to_state: str = Field(description="Target state ID")
+    trigger: Optional[str] = Field(
+        default=None,
+        description="Event/action that triggers this transition"
+    )
+    condition: Optional[str] = Field(
+        default=None,
+        description="Guard condition for the transition"
+    )
+    action: Optional[str] = Field(
+        default=None,
+        description="Action performed during transition"
+    )
+
+
+class StateDiagramArtifact(BaseModel):
+    """
+    State machine diagram artifact.
+    
+    Generated from analyzing code patterns like triggers,
+    flows, and process builders to visualize state transitions.
+    """
+    artifact_type: str = Field(
+        default="state_diagram",
+        description="Type of artifact"
+    )
+    format: StateDiagramFormat = Field(
+        default=StateDiagramFormat.MERMAID,
+        description="Output format of the diagram"
+    )
+    title: str = Field(
+        default="State Machine Diagram",
+        description="Title of the diagram"
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Description of what this diagram represents"
+    )
+    states: List[StateNode] = Field(
+        default=[],
+        description="States in the state machine"
+    )
+    transitions: List[StateTransition] = Field(
+        default=[],
+        description="Transitions between states"
+    )
+    content: str = Field(
+        default="",
+        description="Rendered diagram content (e.g., Mermaid syntax)"
+    )
+    source_files: List[str] = Field(
+        default=[],
+        description="Files that were analyzed to generate this diagram"
+    )
+    detected_patterns: List[str] = Field(
+        default=[],
+        description="Patterns detected during analysis"
+    )
+    metadata: Dict[str, Any] = Field(
+        default={},
+        description="Additional metadata"
+    )
+    interactive_url: Optional[str] = Field(
+        default=None,
+        description="URL to interactive visualization"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "artifact_type": "state_diagram",
+                "format": "mermaid",
+                "title": "Account Status Flow",
+                "states": [
+                    {"id": "draft", "name": "Draft", "is_initial": True},
+                    {"id": "active", "name": "Active"},
+                    {"id": "closed", "name": "Closed", "is_final": True}
+                ],
+                "transitions": [
+                    {"id": "t1", "from_state": "draft", "to_state": "active", "trigger": "activate()"}
+                ],
+                "content": "stateDiagram-v2\n  [*] --> Draft\n  Draft --> Active: activate()\n  Active --> Closed: close()\n  Closed --> [*]",
+                "source_files": ["AccountTrigger.trigger", "AccountHandler.cls"]
+            }
+        }
+
+
+class CodeArtifact(BaseModel):
+    """
+    Enhanced code artifact with confidence and metadata.
+    
+    Extends basic code output with AI confidence scores,
+    reasoning traces, and RAG source attribution.
+    """
+    artifact_type: str = Field(
+        default="code",
+        description="Type of artifact"
+    )
+    filename: str = Field(description="Name of the generated file")
+    file_path: Optional[str] = Field(
+        default=None,
+        description="Full path where file should be placed"
+    )
+    language: str = Field(description="Programming language")
+    content: str = Field(description="Generated code content")
+    description: str = Field(description="Description of what the code does")
+    line_count: int = Field(default=0)
+    
+    # Enhanced metadata
+    confidence_score: float = Field(
+        default=0.0,
+        description="AI confidence in the generated code (0-1)",
+        ge=0.0,
+        le=1.0
+    )
+    patterns_used: List[str] = Field(
+        default=[],
+        description="Design patterns used in the code"
+    )
+    reasoning_trace: List[str] = Field(
+        default=[],
+        description="Step-by-step reasoning for code decisions"
+    )
+    rag_sources: List[RAGSource] = Field(
+        default=[],
+        description="Source documents that informed the code"
+    )
+    
+    # Quality indicators
+    has_tests: bool = Field(
+        default=False,
+        description="Whether tests were generated for this code"
+    )
+    test_coverage_estimate: Optional[float] = Field(
+        default=None,
+        description="Estimated test coverage percentage"
+    )
+    complexity_score: Optional[str] = Field(
+        default=None,
+        description="Code complexity indicator (low/medium/high)"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "artifact_type": "code",
+                "filename": "AccountTriggerHandler.cls",
+                "file_path": "force-app/main/default/classes/AccountTriggerHandler.cls",
+                "language": "apex",
+                "content": "public class AccountTriggerHandler { ... }",
+                "description": "Trigger handler for Account object",
+                "line_count": 150,
+                "confidence_score": 0.94,
+                "patterns_used": ["trigger_handler", "service_layer"],
+                "reasoning_trace": [
+                    "Analyzed existing trigger patterns",
+                    "Applied bulkification best practices"
+                ],
+                "has_tests": True,
+                "test_coverage_estimate": 85.0,
+                "complexity_score": "medium"
+            }
+        }
+
+
+class TestArtifact(BaseModel):
+    """
+    Enhanced test artifact with coverage mapping.
+    
+    Extends basic test output with coverage information
+    and requirement traceability.
+    """
+    artifact_type: str = Field(
+        default="test",
+        description="Type of artifact"
+    )
+    filename: str = Field(description="Name of the test file")
+    file_path: Optional[str] = Field(
+        default=None,
+        description="Full path where test file should be placed"
+    )
+    language: str = Field(description="Programming language")
+    content: str = Field(description="Test file content")
+    
+    # Test details
+    test_count: int = Field(
+        default=0,
+        description="Number of test methods"
+    )
+    test_methods: List[TestOutput] = Field(
+        default=[],
+        description="Individual test method details"
+    )
+    
+    # Coverage information
+    target_files: List[str] = Field(
+        default=[],
+        description="Files these tests are designed to cover"
+    )
+    coverage_estimate: float = Field(
+        default=0.0,
+        description="Estimated coverage percentage",
+        ge=0.0,
+        le=100.0
+    )
+    covered_requirements: List[str] = Field(
+        default=[],
+        description="Requirement IDs covered by these tests"
+    )
+    
+    # Quality indicators
+    confidence_score: float = Field(
+        default=0.0,
+        description="AI confidence in test quality (0-1)",
+        ge=0.0,
+        le=1.0
+    )
+    assertion_count: int = Field(
+        default=0,
+        description="Total number of assertions"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "artifact_type": "test",
+                "filename": "AccountTriggerHandlerTest.cls",
+                "language": "apex",
+                "content": "@isTest public class AccountTriggerHandlerTest { ... }",
+                "test_count": 5,
+                "target_files": ["AccountTriggerHandler.cls"],
+                "coverage_estimate": 85.0,
+                "covered_requirements": ["REQ-001", "REQ-002"],
+                "confidence_score": 0.91,
+                "assertion_count": 15
+            }
+        }
+
+
+class RequirementArtifact(BaseModel):
+    """
+    Enhanced requirement artifact with traceability.
+    
+    Wraps extracted requirements with metadata about
+    extraction confidence and source attribution.
+    """
+    artifact_type: str = Field(
+        default="requirements",
+        description="Type of artifact"
+    )
+    ticket_id: str = Field(description="Source ticket ID")
+    requirements: List[RequirementOutput] = Field(
+        default=[],
+        description="Extracted requirements"
+    )
+    
+    # Extraction metadata
+    confidence_score: float = Field(
+        default=0.0,
+        description="Overall confidence in extraction (0-1)",
+        ge=0.0,
+        le=1.0
+    )
+    extraction_notes: List[str] = Field(
+        default=[],
+        description="Notes about the extraction process"
+    )
+    ambiguities: List[str] = Field(
+        default=[],
+        description="Identified ambiguities in requirements"
+    )
+    assumptions: List[str] = Field(
+        default=[],
+        description="Assumptions made during extraction"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "artifact_type": "requirements",
+                "ticket_id": "PROJ-123",
+                "requirements": [],
+                "confidence_score": 0.88,
+                "extraction_notes": ["Clear acceptance criteria provided"],
+                "ambiguities": ["Unclear error handling requirements"],
+                "assumptions": ["Standard authentication flow assumed"]
+            }
+        }
+
+
+class ArtifactBundle(BaseModel):
+    """
+    Complete bundle of all artifacts from a pipeline run.
+    
+    Aggregates all generated artifacts with their metadata
+    for comprehensive output and review.
+    """
+    bundle_id: str = Field(description="Unique bundle identifier")
+    thread_id: Optional[str] = Field(
+        default=None,
+        description="Workflow thread ID for checkpointing"
+    )
+    ticket_id: str = Field(description="Source ticket ID")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        description="When the bundle was created"
+    )
+    
+    # Artifacts
+    requirements: Optional[RequirementArtifact] = Field(
+        default=None,
+        description="Extracted requirements"
+    )
+    code_artifacts: List[CodeArtifact] = Field(
+        default=[],
+        description="Generated code files"
+    )
+    test_artifacts: List[TestArtifact] = Field(
+        default=[],
+        description="Generated test files"
+    )
+    diff_artifacts: List[DiffArtifact] = Field(
+        default=[],
+        description="Code diffs with metadata"
+    )
+    state_diagrams: List[StateDiagramArtifact] = Field(
+        default=[],
+        description="Generated state machine diagrams"
+    )
+    
+    # Summary metrics
+    total_files_generated: int = Field(
+        default=0,
+        description="Total number of files generated"
+    )
+    total_lines_of_code: int = Field(
+        default=0,
+        description="Total lines of code generated"
+    )
+    average_confidence: float = Field(
+        default=0.0,
+        description="Average confidence across all artifacts"
+    )
+    
+    # Execution metadata
+    pipeline_duration_seconds: Optional[float] = Field(
+        default=None,
+        description="Total pipeline execution time"
+    )
+    agents_executed: List[str] = Field(
+        default=[],
+        description="List of agents that executed"
+    )
+    errors: List[str] = Field(
+        default=[],
+        description="Any errors encountered"
+    )
+    warnings: List[str] = Field(
+        default=[],
+        description="Any warnings generated"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "bundle_id": "bundle-abc123",
+                "thread_id": "thread-xyz789",
+                "ticket_id": "PROJ-123",
+                "created_at": "2024-01-15T10:30:00Z",
+                "requirements": None,
+                "code_artifacts": [],
+                "test_artifacts": [],
+                "diff_artifacts": [],
+                "state_diagrams": [],
+                "total_files_generated": 3,
+                "total_lines_of_code": 450,
+                "average_confidence": 0.91,
+                "pipeline_duration_seconds": 45.2,
+                "agents_executed": ["RequirementAnalyzer", "CodeGenerator", "TestGenerator"],
+                "errors": [],
+                "warnings": []
+            }
+        }
