@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import api from './api';
+import { DiffViewer, OutputBundle, WorkflowVisualizer, CodeArtifact, TestSuiteMatrix } from './components';
 import {
   Layers,
   Copy,
@@ -663,11 +664,12 @@ export default function App() {
 
             {/* Tabs */}
             <div className="border-b border-zinc-800">
-              <nav className="flex gap-1">
+              <nav className="flex gap-1 overflow-x-auto">
                 {[
                   { id: 'requirements', label: 'Requirements', icon: FileSearch },
                   { id: 'code', label: 'Generated Code', icon: Code2 },
                   { id: 'tests', label: 'Test Suite', icon: TestTube2 },
+                  { id: 'workflow', label: 'Workflow', icon: Activity },
                   { id: 'summary', label: 'Summary', icon: Activity }
                 ].map(tab => (
                   <button
@@ -788,13 +790,27 @@ export default function App() {
 
               {/* Code Tab */}
               {activeTab === 'code' && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in duration-300">
-                  <div className="lg:col-span-2">
-                    <CodeBlock
-                      code={apiResponse.generated_code || '# No code generated'}
-                      title="generated_code.py"
+                <div className="animate-in fade-in duration-300">
+                  {/* Use DiffViewer for unified diffs, otherwise CodeArtifact */}
+                  {apiResponse.generated_code && (apiResponse.generated_code.startsWith('diff --git') || apiResponse.generated_code.includes('@@')) ? (
+                    <DiffViewer
+                      diffContent={apiResponse.generated_code}
+                      filesModified={apiResponse.agents?.find(a => a.agent_name === 'CodeGenerator')?.result?.files_generated || []}
+                      reasoningTrace={apiResponse.agents?.find(a => a.agent_name === 'CodeGenerator')?.result?.reasoning_trace || []}
+                      patternsApplied={apiResponse.agents?.find(a => a.agent_name === 'CodeGenerator')?.result?.patterns_used || []}
+                      confidence={apiResponse.agents?.find(a => a.agent_name === 'CodeGenerator')?.result?.confidence || 0}
                     />
-                  </div>
+                  ) : (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      <div className="lg:col-span-2">
+                        <CodeArtifact
+                          content={apiResponse.generated_code || '# No code generated'}
+                          filename="generated_code.py"
+                          language="python"
+                          confidenceScore={apiResponse.agents?.find(a => a.agent_name === 'CodeGenerator')?.result?.confidence || 0}
+                          patternsUsed={apiResponse.agents?.find(a => a.agent_name === 'CodeGenerator')?.result?.patterns_used || []}
+                        />
+                      </div>
                   <div className="space-y-6">
                     {/* Files from repo */}
                     {apiResponse.github_files && apiResponse.github_files.length > 0 && (
@@ -868,56 +884,56 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+                  )}
+                </div>
               )}
 
               {/* Tests Tab */}
               {activeTab === 'tests' && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in duration-300">
-                  <div className="lg:col-span-2">
-                    <CodeBlock
-                      code={apiResponse.generated_tests || '# No tests generated'}
-                      title="test_generated.py"
-                    />
-                  </div>
-                  <div className="space-y-6">
-                    <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-5">
-                      <h4 className="font-semibold text-zinc-300 mb-4">Test Coverage</h4>
-                      <div className="space-y-4">
-                        <div>
-                          <div className="flex justify-between text-sm mb-2">
-                            <span className="text-zinc-500">Estimated Coverage</span>
-                            <span className="text-emerald-400 font-mono">
-                              {apiResponse.agents?.find(a => a.agent_name === 'TestGenerator')?.result?.coverage_estimate || 85}%
-                            </span>
-                          </div>
-                          <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 rounded-full"
-                              style={{ width: `${apiResponse.agents?.find(a => a.agent_name === 'TestGenerator')?.result?.coverage_estimate || 85}%` }}
-                            />
-                          </div>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-zinc-500">Tests Generated</span>
-                          <span className="text-zinc-300 font-mono">
-                            {apiResponse.agents?.find(a => a.agent_name === 'TestGenerator')?.result?.tests_generated || 0}
-                          </span>
-                        </div>
-                      </div>
+                <div className="animate-in fade-in duration-300">
+                  <TestSuiteMatrix
+                    tests={apiResponse.agents?.find(a => a.agent_name === 'TestGenerator')?.result?.tests || []}
+                    coverage={{
+                      method_coverage: apiResponse.agents?.find(a => a.agent_name === 'TestGenerator')?.result?.coverage_estimate || 0,
+                      branch_coverage: 0,
+                      line_coverage: 0
+                    }}
+                    coveredRequirements={apiResponse.requirements?.map(r => r.id) || []}
+                  />
+                  {/* Fallback: show generated test code */}
+                  {apiResponse.generated_tests && (
+                    <div className="mt-6">
+                      <CodeArtifact
+                        content={apiResponse.generated_tests}
+                        filename="test_generated.py"
+                        language="python"
+                        confidenceScore={apiResponse.agents?.find(a => a.agent_name === 'TestGenerator')?.result?.confidence || 0}
+                      />
                     </div>
+                  )}
+                </div>
+              )}
 
-                    <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-5">
-                      <h4 className="font-semibold text-zinc-300 mb-4">Coverage Types</h4>
-                      <div className="space-y-2">
-                        {['Unit Tests', 'Edge Cases', 'Error Handling', 'Boundary Values'].map(type => (
-                          <div key={type} className="flex items-center gap-3 text-sm">
-                            <CheckCircle2 size={14} className="text-emerald-500" />
-                            <span className="text-zinc-400">{type}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
+              {/* Workflow Tab */}
+              {activeTab === 'workflow' && (
+                <div className="animate-in fade-in duration-300">
+                  <WorkflowVisualizer
+                    nodes={(apiResponse.agents || []).map((agent, idx) => ({
+                      id: `node-${idx}`,
+                      name: agent.agent_name,
+                      icon: idx === 0 ? FileSearch : idx === 1 ? Code2 : TestTube2,
+                      status: agent.status === 'completed' ? 'completed' : agent.status === 'failed' ? 'error' : 'pending',
+                      duration: agent.started_at && agent.completed_at 
+                        ? ((new Date(agent.completed_at) - new Date(agent.started_at)) / 1000).toFixed(2)
+                        : null,
+                      result: agent.result
+                    }))}
+                    events={(apiResponse.agents || []).flatMap((agent, idx) => [
+                      { event: 'node_start', node: agent.agent_name, timestamp: agent.started_at || new Date().toISOString() },
+                      { event: agent.status === 'completed' ? 'node_complete' : 'node_error', node: agent.agent_name, timestamp: agent.completed_at || new Date().toISOString() }
+                    ])}
+                    threadId={apiResponse.request_id}
+                  />
                 </div>
               )}
 
