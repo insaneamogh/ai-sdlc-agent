@@ -1,5 +1,3 @@
-//_______________This Code was generated using GenAI tool: Codify, Please check for accuracy_______________//
-
 import React, { useState, useMemo } from 'react';
 import {
   FileSearch,
@@ -436,5 +434,3 @@ const TraceabilityMatrix = ({ requirements = [], codeChanges = [], tests = [] })
 };
 
 export default TraceabilityMatrix;
-
-//__________________________GenAI: Generated code ends here______________________________//
