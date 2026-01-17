@@ -67,9 +67,10 @@ class SDLCOrchestratorStrict:
     5. Fails fast on errors
     """
     
-    def __init__(self):
+    def __init__(self, model: Optional[str] = None):
         self.name = "SDLCOrchestrator"
-        logger.info(f"Initialized {self.name} (STRICT MODE)")
+        self.model = model  # Optional model override for agents
+        logger.info(f"Initialized {self.name} (STRICT MODE, model={model or 'default'})")
     
     async def run(
         self,
@@ -239,7 +240,7 @@ class SDLCOrchestratorStrict:
             # Build codebase context from fetched files
             codebase_context = self._build_codebase_context(state)
             
-            agent = RequirementAgentStrict()
+            agent = RequirementAgentStrict(model=self.model)
             result = await agent.analyze(
                 ticket_id=state["ticket_id"],
                 title=state["ticket_title"],
@@ -309,7 +310,7 @@ class SDLCOrchestratorStrict:
             # Build context
             codebase_context = self._build_codebase_context(state)
             
-            agent = CodeAgentStrict()
+            agent = CodeAgentStrict(model=self.model)
             result = await agent.generate(
                 ticket_id=state["ticket_id"],
                 requirements=requirements,
@@ -403,7 +404,7 @@ class SDLCOrchestratorStrict:
                     assumptions=["No code was generated"]
                 )
             
-            agent = TestAgentStrict()
+            agent = TestAgentStrict(model=self.model)
             result = await agent.generate(
                 ticket_id=state["ticket_id"],
                 requirements=requirements,

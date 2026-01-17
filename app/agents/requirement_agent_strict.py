@@ -91,10 +91,11 @@ class RequirementAgentStrict:
     - Focus on behavior, not implementation
     """
     
-    def __init__(self):
+    def __init__(self, model: Optional[str] = None):
         self.name = "RequirementAnalyzer"
         self.retry_count = 1
-        logger.info(f"Initialized {self.name} (LANGUAGE-AGNOSTIC MODE)")
+        self.model = model  # Optional model override
+        logger.info(f"Initialized {self.name} (LANGUAGE-AGNOSTIC MODE, model={model or 'default'})")
     
     async def analyze(
         self,
@@ -197,8 +198,12 @@ class RequirementAgentStrict:
         if not settings.openai_api_key:
             raise ValueError("OpenAI API key not configured")
         
+        # Use model override if provided, otherwise fall back to settings
+        model_to_use = self.model or settings.openai_model
+        logger.info(f"[{self.name}] Using model: {model_to_use}")
+        
         llm = ChatOpenAI(
-            model=settings.openai_model,
+            model=model_to_use,
             api_key=settings.openai_api_key,
             temperature=0,
             top_p=1,

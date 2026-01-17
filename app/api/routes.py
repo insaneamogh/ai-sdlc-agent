@@ -500,6 +500,11 @@ class StreamAnalyzeRequest(BaseModel):
         default=None,
         description="Thread ID for checkpointing (auto-generated if not provided)"
     )
+    model: Optional[str] = Field(
+        default=None,
+        description="OpenAI model to use (e.g., gpt-4o, gpt-4.1, o1)",
+        example="gpt-4o"
+    )
 
 
 class ResumeRequest(BaseModel):
@@ -593,7 +598,7 @@ async def analyze_stream(request: StreamAnalyzeRequest):
     
     async def event_generator():
         """Generate SSE events from the orchestrator stream"""
-        orchestrator = SDLCOrchestrator()
+        orchestrator = SDLCOrchestrator(model=request.model)
         
         try:
             async for event in orchestrator.stream(

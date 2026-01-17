@@ -50,7 +50,8 @@ export function analyzeStream({
   acceptance_criteria,
   github_repo, 
   github_pr,
-  thread_id 
+  thread_id,
+  model
 }, onEvent, onError, onComplete) {
   const payload = {
     ticket_id,
@@ -60,7 +61,8 @@ export function analyzeStream({
     acceptance_criteria,
     github_repo,
     github_pr,
-    thread_id
+    thread_id,
+    model
   };
 
   // Use fetch for SSE since axios doesn't support streaming well
