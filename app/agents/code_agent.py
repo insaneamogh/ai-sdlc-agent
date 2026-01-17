@@ -45,18 +45,20 @@ class CodeAgent:
         result = await agent.generate(requirements, context)
     """
     
-    def __init__(self, llm=None, vectorstore=None):
+    def __init__(self, llm=None, vectorstore=None, model: str = None):
         """
         Initialize the Code Agent.
         
         Args:
             llm: Optional LLM instance
             vectorstore: Optional vector store for RAG
+            model: Optional model name to use. If not provided, uses config default.
         """
         self.llm = llm
         self.vectorstore = vectorstore
+        self.model = model  # Store model override
         self.name = "CodeGenerator"
-        logger.info(f"Initialized {self.name}")
+        logger.info(f"Initialized {self.name} with model={model or 'default'}")
     
     async def generate(
         self,
@@ -90,8 +92,12 @@ class CodeAgent:
             if not settings.openai_api_key:
                 raise ValueError("OpenAI API key not configured")
             
+            # Use model override if provided, otherwise use config default
+            model_to_use = self.model or settings.openai_model
+            logger.info(f"Using model: {model_to_use}")
+            
             llm = ChatOpenAI(
-                model=settings.openai_model,
+                model=model_to_use,
                 api_key=settings.openai_api_key,
                 temperature=0.3
             )

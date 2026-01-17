@@ -238,17 +238,37 @@ const ExecutionStep = ({ agent, status, isActive, result }) => (
   </div>
 );
 
-// Available OpenAI models
+// Available OpenAI models - organized by capability tier
 const OPENAI_MODELS = [
+  // GPT-5.2 Series (Latest)
   { id: 'gpt-5.2', name: 'GPT-5.2', description: 'Latest & most capable' },
+  { id: 'gpt-5.2-chat-latest', name: 'GPT-5.2 Chat', description: 'Latest chat model' },
+  { id: 'gpt-5.2-codex', name: 'GPT-5.2 Codex', description: 'Code generation' },
+  { id: 'gpt-5.2-pro', name: 'GPT-5.2 Pro', description: 'Premium tier' },
+  
+  // GPT-5.1 Series
   { id: 'gpt-5.1', name: 'GPT-5.1', description: 'Advanced capabilities' },
+  { id: 'gpt-5.1-chat-latest', name: 'GPT-5.1 Chat', description: 'Chat optimized' },
+  { id: 'gpt-5.1-codex', name: 'GPT-5.1 Codex', description: 'Code generation' },
+  { id: 'gpt-5.1-codex-max', name: 'GPT-5.1 Codex Max', description: 'Max code context' },
+  
+  // GPT-5 Series
   { id: 'gpt-5', name: 'GPT-5', description: 'Next generation' },
+  { id: 'gpt-5-chat-latest', name: 'GPT-5 Chat', description: 'Chat optimized' },
+  { id: 'gpt-5-codex', name: 'GPT-5 Codex', description: 'Code generation' },
+  { id: 'gpt-5-pro', name: 'GPT-5 Pro', description: 'Premium tier' },
+  { id: 'gpt-5-mini', name: 'GPT-5 Mini', description: 'Fast & efficient' },
+  { id: 'gpt-5-nano', name: 'GPT-5 Nano', description: 'Ultra-fast, low cost' },
+  
+  // GPT-4.1 Series
+  { id: 'gpt-4.1', name: 'GPT-4.1', description: 'Enhanced GPT-4' },
+  { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', description: 'Fast & affordable' },
+  { id: 'gpt-4.1-nano', name: 'GPT-4.1 Nano', description: 'Ultra-fast' },
+  
+  // GPT-4o Series
   { id: 'gpt-4o', name: 'GPT-4o', description: 'Multimodal, fast' },
+  { id: 'gpt-4o-2024-05-13', name: 'GPT-4o (May 2024)', description: 'Stable release' },
   { id: 'gpt-4o-mini', name: 'GPT-4o Mini', description: 'Fast & affordable' },
-  { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', description: 'High performance' },
-  { id: 'o1', name: 'o1', description: 'Advanced reasoning' },
-  { id: 'o1-mini', name: 'o1 Mini', description: 'Fast reasoning' },
-  { id: 'o1-preview', name: 'o1 Preview', description: 'Preview reasoning' },
 ];
 
 export default function App() {

@@ -44,20 +44,22 @@ class RequirementAgent:
     4. Prioritize requirements
     
     Example usage:
-        agent = RequirementAgent()
+        agent = RequirementAgent(model="gpt-4o")
         result = await agent.analyze(ticket_data)
     """
     
-    def __init__(self, llm=None):
+    def __init__(self, llm=None, model: str = None):
         """
         Initialize the Requirement Agent.
         
         Args:
             llm: Optional LLM instance. If not provided, will be created from config.
+            model: Optional model name to use. If not provided, uses config default.
         """
         self.llm = llm
+        self.model = model  # Store model override
         self.name = "RequirementAnalyzer"
-        logger.info(f"Initialized {self.name}")
+        logger.info(f"Initialized {self.name} with model={model or 'default'}")
     
     async def analyze(
         self,
@@ -93,8 +95,12 @@ class RequirementAgent:
             if not settings.openai_api_key:
                 raise ValueError("OpenAI API key not configured")
             
+            # Use model override if provided, otherwise use config default
+            model_to_use = self.model or settings.openai_model
+            logger.info(f"Using model: {model_to_use}")
+            
             llm = ChatOpenAI(
-                model=settings.openai_model,
+                model=model_to_use,
                 api_key=settings.openai_api_key,
                 temperature=0.3
             )

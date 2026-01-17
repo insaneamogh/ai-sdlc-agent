@@ -216,7 +216,8 @@ class SDLCOrchestrator:
         try:
             from app.agents import RequirementAgent
             
-            agent = RequirementAgent()
+            # Pass model override to agent
+            agent = RequirementAgent(model=self.model)
             result = await agent.analyze(
                 ticket_id=state["ticket_id"],
                 title=state["ticket_title"],
@@ -263,7 +264,8 @@ class SDLCOrchestrator:
         try:
             from app.agents import CodeAgent
             
-            agent = CodeAgent()
+            # Pass model override to agent
+            agent = CodeAgent(model=self.model)
             result = await agent.generate(
                 ticket_id=state["ticket_id"],
                 requirements=state.get("requirements", []),
@@ -313,7 +315,8 @@ class SDLCOrchestrator:
         try:
             from app.agents import TestAgent
             
-            agent = TestAgent()
+            # Pass model override to agent
+            agent = TestAgent(model=self.model)
             result = await agent.generate(
                 ticket_id=state["ticket_id"],
                 code=state.get("generated_code", ""),
