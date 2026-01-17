@@ -99,9 +99,10 @@ class SDLCOrchestrator:
     - Thread-based execution for audit trails and debugging
     - Streaming support for real-time progress updates
     - Conditional routing based on action type
+    - Configurable model selection
     
     Example usage:
-        orchestrator = SDLCOrchestrator()
+        orchestrator = SDLCOrchestrator(model="gpt-4o")
         
         # Standard execution
         result = await orchestrator.run(ticket_data, action="full_pipeline")
@@ -114,13 +115,20 @@ class SDLCOrchestrator:
         result = await orchestrator.resume(thread_id="abc123")
     """
     
-    def __init__(self):
-        """Initialize the orchestrator with checkpointing support"""
+    def __init__(self, model: Optional[str] = None):
+        """
+        Initialize the orchestrator with checkpointing support.
+        
+        Args:
+            model: Optional OpenAI model to use (e.g., 'gpt-4o', 'gpt-5', 'o1').
+                   If not provided, uses the default from config.
+        """
         self.graph = None
         self.checkpointer = None
+        self.model = model  # Store model for use in agents
         self._init_checkpointer()
         self._build_graph()
-        logger.info("Initialized SDLC Orchestrator with checkpointing")
+        logger.info(f"Initialized SDLC Orchestrator with checkpointing, model={model or 'default'}")
     
     def _init_checkpointer(self):
         """Initialize the memory checkpointer for state persistence"""

@@ -68,6 +68,11 @@ class AnalyzeRequest(BaseModel):
         description="GitHub PR URL for additional context",
         example="https://github.com/org/repo/pull/42"
     )
+    model: Optional[str] = Field(
+        default=None,
+        description="OpenAI model to use (e.g., gpt-4o, gpt-5, o1)",
+        example="gpt-4o"
+    )
 
 
 class GitHubFileRequest(BaseModel):
@@ -215,8 +220,8 @@ async def analyze_ticket(request: AnalyzeRequest):
             except Exception:
                 pass
     
-    # Run the actual orchestrator
-    orchestrator = SDLCOrchestrator()
+    # Run the actual orchestrator with model override if provided
+    orchestrator = SDLCOrchestrator(model=request.model)
     result = await orchestrator.run(
         ticket_id=request.ticket_id,
         ticket_title=ticket_title,

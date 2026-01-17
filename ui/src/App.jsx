@@ -238,6 +238,19 @@ const ExecutionStep = ({ agent, status, isActive, result }) => (
   </div>
 );
 
+// Available OpenAI models
+const OPENAI_MODELS = [
+  { id: 'gpt-5.2', name: 'GPT-5.2', description: 'Latest & most capable' },
+  { id: 'gpt-5.1', name: 'GPT-5.1', description: 'Advanced capabilities' },
+  { id: 'gpt-5', name: 'GPT-5', description: 'Next generation' },
+  { id: 'gpt-4o', name: 'GPT-4o', description: 'Multimodal, fast' },
+  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', description: 'Fast & affordable' },
+  { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', description: 'High performance' },
+  { id: 'o1', name: 'o1', description: 'Advanced reasoning' },
+  { id: 'o1-mini', name: 'o1 Mini', description: 'Fast reasoning' },
+  { id: 'o1-preview', name: 'o1 Preview', description: 'Preview reasoning' },
+];
+
 export default function App() {
   // View state
   const [view, setView] = useState('input'); // input | executing | result
@@ -246,7 +259,8 @@ export default function App() {
   const [formData, setFormData] = useState({
     jiraId: '',
     repoUrl: '',
-    actions: ['req', 'code', 'test']
+    actions: ['req', 'code', 'test'],
+    model: 'gpt-4o'
   });
   
   // API response and execution state
@@ -343,7 +357,8 @@ export default function App() {
       const response = await api.analyzeTicket({
         ticket_id: formData.jiraId || `MANUAL-${Date.now()}`,
         action,
-        github_repo: formData.repoUrl || undefined
+        github_repo: formData.repoUrl || undefined,
+        model: formData.model
       });
 
       setApiResponse(response);
@@ -399,7 +414,7 @@ export default function App() {
 
   // Start new analysis
   const startNew = () => {
-    setFormData({ jiraId: '', repoUrl: '', actions: ['req', 'code', 'test'] });
+    setFormData({ jiraId: '', repoUrl: '', actions: ['req', 'code', 'test'], model: 'gpt-4o' });
     handleBack();
   };
 
@@ -528,15 +543,34 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Run Button */}
-              <button
-                onClick={runPipeline}
-                disabled={(!formData.jiraId && !formData.repoUrl) || formData.actions.length === 0}
-                className="w-full bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-500 hover:to-orange-400 disabled:from-zinc-800 disabled:to-zinc-800 disabled:text-zinc-600 text-white font-semibold py-4 rounded-xl transition-all shadow-lg shadow-orange-900/30 disabled:shadow-none flex items-center justify-center gap-3"
-              >
-                <Play size={18} />
-                Run Analysis Pipeline
-              </button>
+              {/* Model Selection & Run Button */}
+              <div className="flex gap-3 items-stretch">
+                {/* Model Dropdown */}
+                <div className="relative">
+                  <select
+                    value={formData.model}
+                    onChange={(e) => setFormData({ ...formData, model: e.target.value })}
+                    className="h-full appearance-none bg-zinc-950 border border-zinc-800 rounded-xl pl-4 pr-10 py-4 focus:outline-none focus:ring-2 focus:ring-orange-600/50 focus:border-orange-600 transition-all text-zinc-200 text-sm font-medium cursor-pointer hover:border-zinc-700"
+                  >
+                    {OPENAI_MODELS.map(model => (
+                      <option key={model.id} value={model.id}>
+                        {model.name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none" />
+                </div>
+                
+                {/* Run Button */}
+                <button
+                  onClick={runPipeline}
+                  disabled={(!formData.jiraId && !formData.repoUrl) || formData.actions.length === 0}
+                  className="flex-1 bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-500 hover:to-orange-400 disabled:from-zinc-800 disabled:to-zinc-800 disabled:text-zinc-600 text-white font-semibold py-4 rounded-xl transition-all shadow-lg shadow-orange-900/30 disabled:shadow-none flex items-center justify-center gap-3"
+                >
+                  <Play size={18} />
+                  Run Analysis Pipeline
+                </button>
+              </div>
             </div>
           </div>
         )}

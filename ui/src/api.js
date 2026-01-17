@@ -12,12 +12,13 @@ const client = axios.create({
 /**
  * Analyze a ticket using the standard synchronous endpoint
  */
-export async function analyzeTicket({ ticket_id, action, github_repo, github_pr }) {
+export async function analyzeTicket({ ticket_id, action, github_repo, github_pr, model }) {
   const payload = {
     ticket_id,
     action,
     github_repo,
-    github_pr
+    github_pr,
+    model
   };
 
   const res = await client.post('/analyze', payload);
