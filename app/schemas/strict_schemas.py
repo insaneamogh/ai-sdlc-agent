@@ -111,9 +111,22 @@ class RequirementSpec(BaseModel):
 # CODE AGENT SCHEMA (LANGUAGE-AWARE, INFERRED)
 # ===========================================
 
+class DiffHunk(BaseModel):
+    """
+    A single hunk in a unified diff.
+    """
+    old_start: int = Field(..., description="Starting line in original file")
+    old_count: int = Field(..., description="Number of lines in original")
+    new_start: int = Field(..., description="Starting line in new file")
+    new_count: int = Field(..., description="Number of lines in new")
+    content: str = Field(..., description="The diff content with +/- prefixes")
+    context: str = Field(default="", description="Function or class context")
+
+
 class CodeChange(BaseModel):
     """
     Single code change - language INFERRED from file extension and context.
+    Outputs unified diff format for reviewability.
     """
     filepath: str = Field(
         ..., 
@@ -130,7 +143,15 @@ class CodeChange(BaseModel):
     content: str = Field(
         ..., 
         min_length=20, 
-        description="Complete file content or diff"
+        description="Complete file content (for create) or unified diff (for modify)"
+    )
+    unified_diff: Optional[str] = Field(
+        default=None,
+        description="Unified diff format for this change"
+    )
+    hunks: List[DiffHunk] = Field(
+        default_factory=list,
+        description="Parsed diff hunks for structured display"
     )
     purpose: str = Field(..., description="What this change accomplishes")
     implements_requirements: List[str] = Field(
@@ -141,6 +162,8 @@ class CodeChange(BaseModel):
         default_factory=list,
         description="Existing files whose patterns were followed"
     )
+    additions: int = Field(default=0, description="Lines added")
+    deletions: int = Field(default=0, description="Lines deleted")
 
     @field_validator('action')
     @classmethod
@@ -148,6 +171,33 @@ class CodeChange(BaseModel):
         if v not in ['create', 'modify', 'delete']:
             raise ValueError('Action must be create, modify, or delete')
         return v
+    
+    def to_unified_diff(self) -> str:
+        """Generate unified diff string for this change"""
+        if self.unified_diff:
+            return self.unified_diff
+        
+        # For new files, generate a diff from /dev/null
+        if self.action == "create":
+            lines = self.content.split('\n')
+            diff_lines = [
+                f"diff --git a/{self.filepath} b/{self.filepath}",
+                "new file mode 100644",
+                "index 0000000..1234567",
+                f"--- /dev/null",
+                f"+++ b/{self.filepath}",
+                f"@@ -0,0 +1,{len(lines)} @@"
+            ]
+            for line in lines:
+                diff_lines.append(f"+{line}")
+            return '\n'.join(diff_lines)
+        
+        # For deletions
+        if self.action == "delete":
+            return f"diff --git a/{self.filepath} b/{self.filepath}\ndeleted file mode 100644"
+        
+        # For modifications, use the unified_diff if available
+        return self.unified_diff or self.content
 
 
 class CodeOutput(BaseModel):

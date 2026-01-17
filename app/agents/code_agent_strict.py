@@ -42,6 +42,7 @@ You MUST:
 - Respect existing file structure and naming conventions
 - Match coding patterns per language (error handling, formatting, etc.)
 - Generate complete, production-ready code
+- Output changes in UNIFIED DIFF FORMAT for reviewability
 
 If multiple languages are involved:
 - Modify only the files relevant to the requirements
@@ -58,10 +59,23 @@ OUTPUT FORMAT - EXACTLY THIS STRUCTURE:
       "filepath": "src/services/feature.py",
       "action": "create",
       "language": "python",
-      "content": "# Complete file content here\\nimport logging\\n\\nclass Feature:\\n    ...",
+      "content": "# Complete file content here\\nimport logging\\n\\nclass Feature:\\n    pass",
+      "unified_diff": "diff --git a/src/services/feature.py b/src/services/feature.py\\nnew file mode 100644\\n--- /dev/null\\n+++ b/src/services/feature.py\\n@@ -0,0 +1,5 @@\\n+# Complete file content here\\n+import logging\\n+\\n+class Feature:\\n+    pass",
+      "hunks": [
+        {{
+          "old_start": 0,
+          "old_count": 0,
+          "new_start": 1,
+          "new_count": 5,
+          "content": "+# Complete file content here\\n+import logging\\n+\\n+class Feature:\\n+    pass",
+          "context": "class Feature"
+        }}
+      ],
       "purpose": "Implements the core feature logic",
       "implements_requirements": ["REQ-001", "REQ-002"],
-      "follows_patterns_from": ["src/services/existing_service.py"]
+      "follows_patterns_from": ["src/services/existing_service.py"],
+      "additions": 5,
+      "deletions": 0
     }}
   ],
   "languages_detected": ["python", "javascript", "apex"],
@@ -78,10 +92,31 @@ OUTPUT FORMAT - EXACTLY THIS STRUCTURE:
   "assumptions": []
 }}
 
+UNIFIED DIFF FORMAT RULES:
+- For NEW files (action: "create"):
+  - unified_diff starts with "diff --git a/filepath b/filepath"
+  - Include "new file mode 100644"
+  - Use "--- /dev/null" and "+++ b/filepath"
+  - All lines prefixed with "+"
+  
+- For MODIFIED files (action: "modify"):
+  - unified_diff shows only changed sections
+  - Include context lines (3 lines before/after changes)
+  - Lines removed prefixed with "-"
+  - Lines added prefixed with "+"
+  - Unchanged context lines have no prefix (space)
+  
+- For DELETED files (action: "delete"):
+  - unified_diff shows "deleted file mode 100644"
+  - All lines prefixed with "-"
+
 CRITICAL RULES:
 - "language" field must be INFERRED from file extension and context
 - "action" must be one of: "create", "modify", "delete"
-- "content" must be COMPLETE code, no placeholders
+- "content" must be COMPLETE code for new files, or the modified sections for changes
+- "unified_diff" MUST be provided for all changes
+- "hunks" array must contain parsed diff hunks
+- "additions" and "deletions" must be accurate counts
 - Generate code in the SAME languages as existing files
 
 Output ONLY JSON. No markdown. No explanations."""

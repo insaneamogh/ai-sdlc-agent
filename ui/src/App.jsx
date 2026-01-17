@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import api from './api';
-import { DiffViewer, OutputBundle, WorkflowVisualizer, CodeArtifact, TestSuiteMatrix } from './components';
+import { DiffViewer, OutputBundle, WorkflowVisualizer, CodeArtifact, TestSuiteMatrix, TraceabilityMatrix } from './components';
 import {
   Layers,
   Copy,
@@ -669,6 +669,7 @@ export default function App() {
                   { id: 'requirements', label: 'Requirements', icon: FileSearch },
                   { id: 'code', label: 'Generated Code', icon: Code2 },
                   { id: 'tests', label: 'Test Suite', icon: TestTube2 },
+                  { id: 'traceability', label: 'Traceability', icon: Layers },
                   { id: 'workflow', label: 'Workflow', icon: Activity },
                   { id: 'summary', label: 'Summary', icon: Activity }
                 ].map(tab => (
@@ -911,6 +912,17 @@ export default function App() {
                       />
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Traceability Tab */}
+              {activeTab === 'traceability' && (
+                <div className="animate-in fade-in duration-300">
+                  <TraceabilityMatrix
+                    requirements={apiResponse.requirements || []}
+                    codeChanges={apiResponse.code_output?.changes || []}
+                    tests={apiResponse.test_output?.tests || apiResponse.agents?.find(a => a.agent_name === 'TestGenerator')?.result?.tests || []}
+                  />
                 </div>
               )}
 

@@ -9,3 +9,4 @@ export { default as CodeArtifact } from './CodeArtifact';
 export { default as TestSuiteMatrix } from './TestSuiteMatrix';
 export { default as DiffViewer } from './DiffViewer';
 export { default as OutputBundle } from './OutputBundle';
+export { default as TraceabilityMatrix } from './TraceabilityMatrix';

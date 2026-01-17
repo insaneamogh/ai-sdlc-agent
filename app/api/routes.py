@@ -320,23 +320,58 @@ async def analyze_manual(request: ManualAnalyzeRequest):
     )
 
 
+@router.get("/jira/test")
+async def test_jira_connection():
+    """
+    Test the Jira connection and return server info.
+    
+    Use this endpoint to verify Jira credentials are configured correctly.
+    Returns connection status and server information if successful.
+    """
+    from app.services.jira_service import JiraService
+    
+    jira = JiraService()
+    result = await jira.test_connection()
+    await jira.close()
+    
+    return {
+        "service": "Jira",
+        "configured": jira.is_configured,
+        "is_cloud": jira.is_cloud,
+        **result
+    }
+
+
 @router.get("/tickets/{ticket_id}", response_model=TicketResponse)
 async def get_ticket(ticket_id: str):
     """
     Get details of a Jira ticket.
     
     This endpoint fetches ticket information from Jira.
-    Currently returns mock data.
+    If Jira is not configured, returns mock data.
     """
-    # Mock data - will be replaced with actual Jira integration
-    return TicketResponse(
-        ticket_id=ticket_id,
-        title=f"Sample Ticket: {ticket_id}",
-        description="This is a sample ticket description. In production, this will be fetched from Jira.",
-        status="Open",
-        acceptance_criteria="- User can login\n- User can logout\n- Session is maintained",
-        linked_prs=["https://github.com/org/repo/pull/42"]
-    )
+    from app.services.jira_service import JiraService
+    
+    jira = JiraService()
+    
+    try:
+        ticket = await jira.get_ticket(ticket_id)
+        
+        return TicketResponse(
+            ticket_id=ticket.key,
+            title=ticket.title,
+            description=ticket.description,
+            status=ticket.status,
+            acceptance_criteria=ticket.acceptance_criteria,
+            linked_prs=ticket.linked_prs
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to fetch ticket {ticket_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch ticket: {str(e)}")
+    finally:
+        await jira.close()
 
 
 @router.get("/agents")

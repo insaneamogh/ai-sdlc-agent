@@ -320,17 +320,16 @@ class SDLCOrchestratorStrict:
             # Store validated result
             state["code_output"] = result.model_dump()
             
-            # Backwards compatibility - combine files into single string
-            code_parts = []
+            # Generate unified diff output for reviewability
+            diff_parts = []
             for change in result.changes:
-                code_parts.append(f"# ===== FILE: {change.filepath} =====")
-                code_parts.append(f"# Language: {change.language}")
-                code_parts.append(f"# Purpose: {change.purpose}")
-                code_parts.append(f"# Implements: {', '.join(change.implements_requirements)}")
-                code_parts.append(change.content)
-                code_parts.append("")
+                # Use the unified_diff if available, otherwise generate from content
+                if change.unified_diff:
+                    diff_parts.append(change.unified_diff)
+                else:
+                    diff_parts.append(change.to_unified_diff())
             
-            state["generated_code"] = "\n".join(code_parts)
+            state["generated_code"] = "\n".join(diff_parts)
             
             state["agent_results"].append({
                 "agent_name": "CodeGenerator",
@@ -466,6 +465,232 @@ class SDLCOrchestratorStrict:
             return "No codebase context available - GitHub repo was not provided or could not be fetched."
         
         return "\n".join(parts)
+
+
+    async def stream(
+        self,
+        ticket_id: str,
+        ticket_title: str,
+        ticket_description: str,
+        action: str = "full_pipeline",
+        acceptance_criteria: Optional[str] = None,
+        github_repo: Optional[str] = None,
+        github_pr: Optional[str] = None,
+        thread_id: Optional[str] = None
+    ):
+        """
+        Stream the SDLC pipeline with real-time events.
+        
+        Yields events as the pipeline progresses through each agent.
+        """
+        import uuid
+        
+        if not thread_id:
+            thread_id = str(uuid.uuid4())[:8]
+        
+        logger.info(f"[{self.name}] STREAMING PIPELINE (thread: {thread_id})")
+        
+        # Emit workflow start event
+        yield {
+            "event": "workflow_start",
+            "thread_id": thread_id,
+            "ticket_id": ticket_id,
+            "action": action,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        # Initialize state
+        state: StrictAgentState = {
+            "ticket_id": ticket_id,
+            "ticket_title": ticket_title,
+            "ticket_description": ticket_description,
+            "acceptance_criteria": acceptance_criteria,
+            "action": WorkflowAction(action),
+            "github_repo": github_repo,
+            "codebase_structure": None,
+            "codebase_files": None,
+            "requirements_spec": None,
+            "code_output": None,
+            "test_output": None,
+            "requirements": None,
+            "generated_code": None,
+            "generated_tests": None,
+            "current_agent": "",
+            "agent_results": [],
+            "errors": [],
+            "started_at": datetime.utcnow().isoformat(),
+            "completed_at": None
+        }
+        
+        # Store state for retrieval
+        self._states = getattr(self, '_states', {})
+        self._states[thread_id] = state
+        self._state_history = getattr(self, '_state_history', {})
+        self._state_history[thread_id] = [dict(state)]
+        
+        try:
+            # STEP 1: FETCH GITHUB CONTENT
+            if github_repo:
+                yield {
+                    "event": "node_start",
+                    "node": "GitHubFetcher",
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+                state = await self._fetch_github_context(state)
+                self._states[thread_id] = state
+                self._state_history[thread_id].append(dict(state))
+                yield {
+                    "event": "node_complete",
+                    "node": "GitHubFetcher",
+                    "files_fetched": len(state.get("codebase_files", {})),
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            else:
+                state["codebase_structure"] = "No GitHub repository provided"
+                state["codebase_files"] = {}
+            
+            # STEP 2: Run RequirementAgent
+            yield {
+                "event": "node_start",
+                "node": "RequirementAnalyzer",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            state = await self._run_requirement_agent(state)
+            self._states[thread_id] = state
+            self._state_history[thread_id].append(dict(state))
+            yield {
+                "event": "node_complete",
+                "node": "RequirementAnalyzer",
+                "requirements_count": len(state.get("requirements", [])),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+            # STEP 3: Run CodeAgent (if needed)
+            if state["action"] in [WorkflowAction.GENERATE_CODE, WorkflowAction.FULL_PIPELINE]:
+                yield {
+                    "event": "node_start",
+                    "node": "CodeGenerator",
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+                state = await self._run_code_agent(state)
+                self._states[thread_id] = state
+                self._state_history[thread_id].append(dict(state))
+                yield {
+                    "event": "node_complete",
+                    "node": "CodeGenerator",
+                    "files_generated": len(state.get("code_output", {}).get("changes", [])) if state.get("code_output") else 0,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            
+            # STEP 4: Run TestAgent (if needed)
+            if state["action"] in [WorkflowAction.GENERATE_TESTS, WorkflowAction.FULL_PIPELINE]:
+                yield {
+                    "event": "node_start",
+                    "node": "TestGenerator",
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+                state = await self._run_test_agent(state)
+                self._states[thread_id] = state
+                self._state_history[thread_id].append(dict(state))
+                yield {
+                    "event": "node_complete",
+                    "node": "TestGenerator",
+                    "tests_generated": len(state.get("test_output", {}).get("tests", [])) if state.get("test_output") else 0,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            
+            state["completed_at"] = datetime.utcnow().isoformat()
+            self._states[thread_id] = state
+            self._state_history[thread_id].append(dict(state))
+            
+            # Emit workflow complete event
+            yield {
+                "event": "workflow_complete",
+                "thread_id": thread_id,
+                "status": "completed" if not state.get("errors") else "completed_with_errors",
+                "requirements": state.get("requirements"),
+                "generated_code": state.get("generated_code"),
+                "generated_tests": state.get("generated_tests"),
+                "agent_results": state.get("agent_results"),
+                "errors": state.get("errors"),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"[{self.name}] STREAMING PIPELINE FAILED: {e}")
+            state["errors"].append(str(e))
+            state["completed_at"] = datetime.utcnow().isoformat()
+            self._states[thread_id] = state
+            self._state_history[thread_id].append(dict(state))
+            
+            yield {
+                "event": "workflow_error",
+                "thread_id": thread_id,
+                "error": str(e),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+    
+    async def get_state(self, thread_id: str) -> Optional[Dict[str, Any]]:
+        """Get the current state of a workflow by thread ID"""
+        states = getattr(self, '_states', {})
+        return states.get(thread_id)
+    
+    async def get_state_history(self, thread_id: str) -> Optional[List[Dict[str, Any]]]:
+        """Get the state history of a workflow by thread ID"""
+        history = getattr(self, '_state_history', {})
+        return history.get(thread_id)
+    
+    async def resume(self, thread_id: str) -> Dict[str, Any]:
+        """
+        Resume a paused or interrupted workflow from its last checkpoint.
+        
+        Note: This implementation re-runs the workflow from the beginning
+        since we don't have persistent checkpointing in the strict version.
+        """
+        states = getattr(self, '_states', {})
+        state = states.get(thread_id)
+        
+        if not state:
+            raise RuntimeError(f"No workflow found with thread_id: {thread_id}")
+        
+        # Re-run from the beginning with the same parameters
+        return await self.run(
+            ticket_id=state["ticket_id"],
+            ticket_title=state["ticket_title"],
+            ticket_description=state["ticket_description"],
+            action=state["action"].value if isinstance(state["action"], WorkflowAction) else state["action"],
+            acceptance_criteria=state.get("acceptance_criteria"),
+            github_repo=state.get("github_repo")
+        )
+    
+    def get_workflow_diagram(self) -> str:
+        """
+        Get the Mermaid diagram representation of the workflow.
+        """
+        return """
+graph TD
+    START([Start]) --> GH{GitHub Repo?}
+    GH -->|Yes| FETCH[Fetch GitHub Context]
+    GH -->|No| RA[Requirement Analyzer]
+    FETCH --> RA
+    RA --> Decision{Action Type?}
+    Decision -->|analyze_requirements| END_REQ([Output Requirements])
+    Decision -->|generate_code| CG[Code Generator]
+    Decision -->|generate_tests| TG[Test Generator]
+    Decision -->|full_pipeline| CG
+    CG --> CG_CHECK{Code Generated?}
+    CG_CHECK -->|Yes| TG
+    CG_CHECK -->|No| TG
+    TG --> END([Output Bundle])
+    
+    style START fill:#22c55e,color:#fff
+    style END fill:#22c55e,color:#fff
+    style END_REQ fill:#22c55e,color:#fff
+    style RA fill:#f97316,color:#fff
+    style CG fill:#3b82f6,color:#fff
+    style TG fill:#8b5cf6,color:#fff
+    style FETCH fill:#06b6d4,color:#fff
+"""
 
 
 # Export for backwards compatibility
