@@ -1,4 +1,8 @@
+# Replit configuration for AI SDLC Agent
+# Full-stack Python backend + React frontend
+
 modules = ["nodejs-20", "web", "python-3.11"]
+
 [agent]
 expertMode = true
 
@@ -27,14 +31,18 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd ui && npm run dev & uvicorn app.main:app --host localhost --port 8001 --reload"
+args = "cd ui && npm install && npm run dev & pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload"
 waitForPort = 5000
 
 [[ports]]
 localPort = 5000
 externalPort = 80
 
+[[ports]]
+localPort = 8001
+externalPort = 8001
+
 [deployment]
 deploymentTarget = "autoscale"
+build = ["bash", "-c", "pip install -r requirements.txt && cd ui && npm install && npm run build"]
 run = ["bash", "-c", "cd ui && npm run preview -- --host 0.0.0.0 --port 5000 & uvicorn app.main:app --host 0.0.0.0 --port 8001"]
-build = ["bash", "-c", "cd ui && npm run build"]
