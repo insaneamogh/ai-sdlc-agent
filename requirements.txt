@@ -59,3 +59,26 @@ loguru==0.7.3
 # On Mac/Linux, ChromaDB installs without issues.
 # Uncomment the line below after installing Visual C++ Build Tools (Windows) or on Mac/Linux:
 # chromadb>=0.4.0
+aiohttp
+fastapi
+httpx
+langchain
+langchain-community
+langchain-core
+langchain-openai
+langchain-text-splitters
+langgraph
+loguru
+numpy
+openai
+orjson
+pydantic
+pydantic-settings
+pytest
+pytest-asyncio
+python-dotenv
+SQLAlchemy
+tenacity
+tiktoken
+tqdm
+uvicorn
