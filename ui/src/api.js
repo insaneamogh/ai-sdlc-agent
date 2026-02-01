@@ -1,12 +1,16 @@
 import axios from 'axios';
 
-const BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8001/api/v1';
+// In production (Replit), use relative path so requests go through the same domain
+// In development, use localhost:8001
+const isDev = import.meta.env.DEV;
+const BASE = import.meta.env.VITE_API_BASE || (isDev ? 'http://127.0.0.1:8001/api/v1' : '/api/v1');
 
 const client = axios.create({
   baseURL: BASE,
   headers: {
     'Content-Type': 'application/json'
-  }
+  },
+  timeout: 120000 // 2 minute timeout for long-running AI operations
 });
 
 /**
@@ -42,13 +46,13 @@ export async function analyzeManual(ticket, action = 'analyze_requirements') {
  * @param {Function} onComplete - Callback when stream completes
  * @returns {Function} Cleanup function to close the connection
  */
-export function analyzeStream({ 
-  ticket_id, 
+export function analyzeStream({
+  ticket_id,
   title,
   description,
-  action, 
+  action,
   acceptance_criteria,
-  github_repo, 
+  github_repo,
   github_pr,
   thread_id,
   model
@@ -67,7 +71,7 @@ export function analyzeStream({
 
   // Use fetch for SSE since axios doesn't support streaming well
   const controller = new AbortController();
-  
+
   fetch(`${BASE}/analyze/stream`, {
     method: 'POST',
     headers: {
@@ -80,27 +84,27 @@ export function analyzeStream({
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      
+
       while (true) {
         const { done, value } = await reader.read();
-        
+
         if (done) {
           if (onComplete) onComplete();
           break;
         }
-        
+
         buffer += decoder.decode(value, { stream: true });
-        
+
         // Parse SSE events from buffer
         const lines = buffer.split('\n');
         buffer = lines.pop() || ''; // Keep incomplete line in buffer
-        
+
         let currentEvent = null;
-        
+
         for (const line of lines) {
           if (line.startsWith('event: ')) {
             currentEvent = line.slice(7).trim();
@@ -121,7 +125,7 @@ export function analyzeStream({
         if (onError) onError(error);
       }
     });
-  
+
   // Return cleanup function
   return () => controller.abort();
 }
@@ -182,12 +186,12 @@ export async function getWorkflowDiagram() {
   return res.data;
 }
 
-export default { 
-  analyzeTicket, 
-  analyzeManual, 
+export default {
+  analyzeTicket,
+  analyzeManual,
   analyzeStream,
-  getRequestStatus, 
-  listAgents, 
+  getRequestStatus,
+  listAgents,
   getRepoFile,
   getWorkflowState,
   getWorkflowHistory,
