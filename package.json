@@ -1,0 +1,15 @@
+{
+    "name": "ai-sdlc-agent",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "install": "cd ui && npm install",
+        "build": "cd ui && npm run build",
+        "dev": "cd ui && npm run dev",
+        "preview": "cd ui && npm run preview",
+        "start": "cd ui && npm run preview -- --host 0.0.0.0 --port 5000"
+    },
+    "engines": {
+        "node": ">=18"
+    }
+}
