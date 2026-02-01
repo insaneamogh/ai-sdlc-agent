@@ -163,6 +163,29 @@ async def health_check():
     }
 
 
+@router.get("/config/check")
+async def check_config():
+    """
+    Check if required configuration (API keys) are set.
+    
+    Use this to debug deployment issues where agents fall back to mock data.
+    Does NOT reveal the actual keys, only whether they are configured.
+    """
+    from app.config import get_settings, validate_settings
+    
+    settings = get_settings()
+    validation = validate_settings()
+    
+    return {
+        "openai_api_key_configured": bool(settings.openai_api_key),
+        "openai_api_key_length": len(settings.openai_api_key) if settings.openai_api_key else 0,
+        "github_token_configured": bool(settings.github_token),
+        "openai_model": settings.openai_model,
+        "validation": validation,
+        "hint": "If keys show as not configured, add them to Replit Secrets with exact names: OPENAI_API_KEY, GITHUB_TOKEN"
+    }
+
+
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_ticket(request: AnalyzeRequest):
     """
