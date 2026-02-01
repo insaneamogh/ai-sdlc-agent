@@ -41,10 +41,13 @@ externalPort = 80
 [[ports]]
 localPort = 8001
 externalPort = 8001
-exposeLocalhost = true
 
 [deployment]
 deploymentTarget = "autoscale"
 build = ["bash", "-c", "pip install -r requirements.txt && npm install && npm run build"]
 run = ["bash", "-c", "npm run start & uvicorn app.main:app --host 0.0.0.0 --port 8001"]
+
+[userenv]
+
+[userenv.shared]
 
