@@ -31,6 +31,7 @@ class RequirementAnalysisResult(BaseModel):
     summary: str
     confidence_score: float = Field(ge=0.0, le=1.0)
     raw_analysis: Optional[str] = None
+    fallback_used: bool = False
 
 
 class RequirementAgent:
@@ -170,7 +171,8 @@ Extract at least 3-5 meaningful requirements based on the content."""
                 requirements=requirements,
                 summary=parsed.get("summary", f"Extracted {len(requirements)} requirements"),
                 confidence_score=parsed.get("confidence_score", 0.8),
-                raw_analysis=response_text
+                raw_analysis=response_text,
+                fallback_used=False
             )
             
             logger.info(f"Completed analysis for {ticket_id}: {len(requirements)} requirements found")
@@ -200,7 +202,8 @@ Extract at least 3-5 meaningful requirements based on the content."""
                 ticket_id=ticket_id,
                 requirements=mock_requirements,
                 summary=f"Fallback analysis: {str(e)}",
-                confidence_score=0.5
+                confidence_score=0.5,
+                fallback_used=True
             )
     
     def _create_analysis_prompt(

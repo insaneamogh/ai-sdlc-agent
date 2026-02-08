@@ -29,6 +29,7 @@ class TestGenerationResult(BaseModel):
     summary: str
     coverage_estimate: float = Field(ge=0.0, le=100.0)
     confidence_score: float = Field(ge=0.0, le=1.0)
+    fallback_used: bool = False
 
 
 class TestAgent:
@@ -180,7 +181,8 @@ Generate 4-6 pytest test cases covering:
                 test_file=parsed.get("test_file", self._combine_tests(tests, test_framework)),
                 summary=parsed.get("summary", f"Generated {len(tests)} tests"),
                 coverage_estimate=parsed.get("coverage_estimate", 80.0),
-                confidence_score=parsed.get("confidence_score", 0.8)
+                confidence_score=parsed.get("confidence_score", 0.8),
+                fallback_used=False
             )
             
             logger.info(f"Completed test generation for {ticket_id}: {len(tests)} tests generated")
@@ -205,7 +207,8 @@ Generate 4-6 pytest test cases covering:
                 test_file=self._combine_tests(mock_tests, test_framework),
                 summary=f"Fallback test generation: {str(e)}",
                 coverage_estimate=20.0,
-                confidence_score=0.3
+                confidence_score=0.3,
+                fallback_used=True
             )
     
     def _generate_mock_test_valid(self) -> str:

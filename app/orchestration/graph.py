@@ -235,7 +235,8 @@ class SDLCOrchestrator:
                 "timestamp": datetime.utcnow().isoformat(),
                 "result": {
                     "requirements_count": len(result.requirements),
-                    "confidence": result.confidence_score
+                    "confidence": result.confidence_score,
+                    "fallback_used": getattr(result, "fallback_used", False)
                 }
             })
             
@@ -286,7 +287,8 @@ class SDLCOrchestrator:
                 "result": {
                     "files_generated": len(result.files),
                     "patterns_used": result.patterns_used,
-                    "confidence": result.confidence_score
+                    "confidence": result.confidence_score,
+                    "fallback_used": getattr(result, "fallback_used", False)
                 }
             })
             
@@ -331,7 +333,8 @@ class SDLCOrchestrator:
                 "result": {
                     "tests_generated": len(result.tests),
                     "coverage_estimate": result.coverage_estimate,
-                    "confidence": result.confidence_score
+                    "confidence": result.confidence_score,
+                    "fallback_used": getattr(result, "fallback_used", False)
                 }
             })
             

@@ -91,6 +91,10 @@ class Settings(BaseSettings):
         default="0.1.0",
         description="API version"
     )
+    cors_origins: str = Field(
+        default="*",
+        description="CORS allowed origins (comma-separated or '*')"
+    )
     
     class Config:
         """Pydantic configuration"""

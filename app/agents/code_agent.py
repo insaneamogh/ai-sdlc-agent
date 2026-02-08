@@ -28,6 +28,7 @@ class CodeGenerationResult(BaseModel):
     summary: str
     patterns_used: List[str] = []
     confidence_score: float = Field(ge=0.0, le=1.0)
+    fallback_used: bool = False
 
 
 class CodeAgent:
@@ -173,7 +174,8 @@ Generate 2-3 Python files that implement these requirements with:
                 files=files,
                 summary=parsed.get("summary", f"Generated {len(files)} files"),
                 patterns_used=parsed.get("patterns_used", []),
-                confidence_score=parsed.get("confidence_score", 0.8)
+                confidence_score=parsed.get("confidence_score", 0.8),
+                fallback_used=False
             )
             
             logger.info(f"Completed code generation for {ticket_id}: {len(files)} files generated")
@@ -197,7 +199,8 @@ Generate 2-3 Python files that implement these requirements with:
                 files=mock_files,
                 summary=f"Fallback generation: {str(e)}",
                 patterns_used=[],
-                confidence_score=0.5
+                confidence_score=0.5,
+                fallback_used=True
             )
     
     def _generate_mock_code(self, requirements: List[Dict[str, Any]]) -> str:

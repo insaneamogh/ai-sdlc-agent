@@ -73,10 +73,16 @@ An AI-native SDLC orchestration system that automates:
 )
 
 # Add CORS middleware (allows frontend to call API)
+cors_origins_raw = settings.cors_origins.strip()
+if cors_origins_raw == "*":
+    cors_origins = ["*"]
+else:
+    cors_origins = [o.strip() for o in cors_origins_raw.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact origins
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=False if cors_origins == ["*"] else True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -110,5 +116,4 @@ async def health_check():
         "service": "AI SDLC Agent",
         "version": settings.api_version
     }
-
 

@@ -22,6 +22,24 @@ from app.utils.logger import logger
 
 router = APIRouter()
 
+def _parse_github_pr_url(url: str) -> Optional[Dict[str, Any]]:
+    """
+    Parse a GitHub PR URL into repo and PR number.
+    Returns {"repo": "owner/repo", "number": 123} or None if invalid.
+    """
+    if not url:
+        return None
+    import re
+    # Accept full URL or owner/repo#number format
+    pr_url = url.strip().rstrip("/")
+    match = re.search(r"github\.com/([^/]+/[^/]+)/pull/(\d+)", pr_url)
+    if match:
+        return {"repo": match.group(1), "number": int(match.group(2))}
+    match = re.search(r"^([^/]+/[^#]+)#(\d+)$", pr_url)
+    if match:
+        return {"repo": match.group(1), "number": int(match.group(2))}
+    return None
+
 
 # ===========================================
 # Enums
@@ -178,11 +196,10 @@ async def check_config():
     
     return {
         "openai_api_key_configured": bool(settings.openai_api_key),
-        "openai_api_key_length": len(settings.openai_api_key) if settings.openai_api_key else 0,
         "github_token_configured": bool(settings.github_token),
         "openai_model": settings.openai_model,
         "validation": validation,
-        "hint": "If keys show as not configured, add them to Replit Secrets with exact names: OPENAI_API_KEY, GITHUB_TOKEN"
+        "hint": "If keys show as not configured, add them to your environment with exact names: OPENAI_API_KEY, GITHUB_TOKEN"
     }
 
 
@@ -237,6 +254,24 @@ async def analyze_ticket(request: AnalyzeRequest):
             
         except Exception as e:
             logger.error(f"Failed to fetch GitHub context: {e}")
+        finally:
+            try:
+                await gh_service.close()
+            except Exception:
+                pass
+
+    # Fetch GitHub PR info if provided
+    if request.github_pr:
+        gh_service = GitHubService()
+        try:
+            pr_info = _parse_github_pr_url(request.github_pr)
+            if pr_info:
+                github_pr_info = (await gh_service.get_pr(pr_info["repo"], pr_info["number"])).model_dump()
+                github_diff = await gh_service.get_pr_diff(pr_info["repo"], pr_info["number"])
+            else:
+                logger.warning(f"Invalid GitHub PR URL format: {request.github_pr}")
+        except Exception as e:
+            logger.error(f"Failed to fetch GitHub PR context: {e}")
         finally:
             try:
                 await gh_service.close()
